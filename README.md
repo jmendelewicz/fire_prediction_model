@@ -7,7 +7,7 @@
 
 Sistema de machine learning para la predicción de incendios forestales con **12 horas de anticipación**, construido sobre un pipeline de datos medallón en Databricks, utilizando exclusivamente fuentes de datos públicas y gratuitas.
 
-> **Trabajo Final — Diplomatura en Ciencia de Datos, FAMAF, Universidad Nacional de Córdoba**
+> **Trabajo Final — Diplomatura en Ciencia de Datos**
 
 ---
 
