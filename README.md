@@ -41,17 +41,7 @@ Cubre las Sierras de Córdoba completas, incluyendo los Comechingones al sur, la
 
 ### Comparativa con trabajo relacionado
 
-El proyecto toma como referencia a [Phoenix Eye (Flores et al., 2024)](https://github.com/jbric16/FlameForecast_Project), un sistema similar para México basado en ConvLSTM sobre imágenes MODIS. Las diferencias clave son:
-
-| Característica | Phoenix Eye | Este proyecto |
-|---|---|---|
-| Modelo principal | ConvLSTM | Random Forest |
-| Datos climáticos | Meteomatics (pago) | Open-Meteo (gratuito) |
-| Datos de fuego | NASA FIRMS MODIS | NASA FIRMS VIIRS |
-| Recall (RF) | 44% | 54%+ |
-| ROC-AUC | N/A | 0.916 |
-| Forecast integrado | No | Sí (16 días) |
-| Replicable sin costo | No | Sí |
+El proyecto toma como referencia a [Phoenix Eye (Flores et al., 2024)](https://github.com/jbric16/FlameForecast_Project), un sistema similar para México basado en ConvLSTM sobre imágenes MODIS.
 
 ---
 
