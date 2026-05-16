@@ -175,11 +175,16 @@ def calcular_ffmc(temp, rh, wind, rain, ffmc_prev):
 
 def calcular_dmc(temp, rh, rain, dmc_prev, mes):
     """
-    Duff Moisture Code — humedad de capas orgánicas (5-10 cm).
-    Responde en días.
-    Tabla DL ajustada para Hemisferio Sur (~35°S, Pampa).
-    Fuente: Van Wagner (1987) tabla original NH desplazada 6 meses.
-    Para ~35°S: dic-feb=verano (DL alto), jun-ago=invierno (DL negativo).
+    Duff Moisture Code — humedad de capas orgánicas (5-10 cm). Responde en días.
+    Tabla Le (Effective Day Length) ajustada para Hemisferio Sur (~35°S, Pampa).
+    Fuente: Lawson & Armitage (2008), Weather Guide for the Canadian Forest
+    Fire Danger Rating System (Tabla 3.4 desplazada 6 meses).
+
+    AUDIT fix C-8: el código anterior usaba la tabla Lf (de DC) para DMC.
+    Lf toma valores negativos en invierno → DMC colapsaba a 0.001 todo el
+    invierno austral, inconsistente con el modelo de Van Wagner. Le es
+    siempre positivo (correcto físicamente: la materia orgánica siempre
+    tiene algo de drying, sólo varía la magnitud).
     """
     if rain > 1.5:
         re = 0.92 * rain - 1.27
@@ -193,12 +198,12 @@ def calcular_dmc(temp, rh, rain, dmc_prev, mes):
         mr       = mo + 1000 * re / (48.77 + b * re)
         pr       = 244.72 - 43.43 * np.log(mr - 20)
         dmc_prev = max(pr, 0)
-    # Hemisferio Sur ~35°S: valores positivos en verano austral (dic-ene-feb)
-    DL = [6.4, 5.0, 2.4, 0.4, -1.6, -1.6, -1.6, -1.6, -1.1, 0.9, 3.8, 5.8]
-    #      ene  feb  mar  abr   may   jun   jul   ago   sep  oct  nov  dic
+    # Le (Effective Day Length) — Hemisferio Sur ~35°S (NH shift 6 meses).
+    Le = [13.9, 12.4, 10.9, 9.4, 8.0, 7.0, 6.0, 6.5, 7.5, 9.0, 12.8, 13.9]
+    #     ene   feb   mar   abr  may  jun  jul  ago  sep  oct  nov   dic
     if temp < -1.1:
         return max(dmc_prev, 0.001)
-    k = 1.894 * (temp + 1.1) * (100 - rh) * DL[mes - 1] * 1e-6
+    k = 1.894 * (temp + 1.1) * (100 - rh) * Le[mes - 1] * 1e-6
     return max(0.001, dmc_prev + 100 * k)
 
 

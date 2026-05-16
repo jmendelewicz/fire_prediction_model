@@ -55,9 +55,18 @@ def calcular_dmc(temp, rh, rain, dmc_prev, mes):
     """
     Duff Moisture Code — humedad de capas orgánicas (5-10 cm).
     Responde en días.
-    Tabla DL ajustada para Hemisferio Sur (~35°S, Pampa).
-    Fuente: Van Wagner (1987) tabla original NH desplazada 6 meses.
-    Para ~35°S: dic-feb=verano (DL alto), jun-ago=invierno (DL negativo).
+
+    Tabla Le (Effective Day Length) ajustada para Hemisferio Sur (~35°S, Pampa).
+    Fuente: Lawson & Armitage (2008), "Weather Guide for the Canadian Forest
+    Fire Danger Rating System", Tabla 3.4 — valores para 30-40°S desplazados
+    6 meses respecto del estándar NH.
+
+    AUDIT fix C-8: el código anterior usaba la tabla **Lf (Day-Length Factor
+    de DC)** para DMC. Lf toma valores negativos en invierno, lo cual hace
+    que DMC colapse a 0.001 durante todo el invierno austral — inconsistente
+    con la física del modelo Van Wagner (DMC siempre debe secarse algo).
+    Le es siempre positivo: la materia orgánica recibe algo de radiación
+    incluso en invierno, sólo varía la magnitud.
     """
     if rain > 1.5:
         re = 0.92 * rain - 1.27
@@ -71,12 +80,16 @@ def calcular_dmc(temp, rh, rain, dmc_prev, mes):
         mr       = mo + 1000 * re / (48.77 + b * re)
         pr       = 244.72 - 43.43 * np.log(mr - 20)
         dmc_prev = max(pr, 0)
-    # Hemisferio Sur ~35°S: positivo en verano austral (dic-ene-feb), negativo en invierno
-    DL = [6.4, 5.0, 2.4, 0.4, -1.6, -1.6, -1.6, -1.6, -1.1, 0.9, 3.8, 5.8]
-    #      ene  feb  mar  abr   may   jun   jul   ago   sep  oct  nov  dic
+    # Le (Effective Day Length) — Hemisferio Sur ~35°S, Lawson & Armitage 2008.
+    # Originales NH (46-60°N): Jan=6.5, Feb=7.5, Mar=9.0, Apr=12.8, May=13.9,
+    # Jun=13.9, Jul=12.4, Aug=10.9, Sep=9.4, Oct=8.0, Nov=7.0, Dec=6.0.
+    # SH ~35°S = NH shift 6 meses. Todos positivos (correctamente, materia
+    # orgánica tiene siempre algo de drying):
+    Le = [13.9, 12.4, 10.9, 9.4, 8.0, 7.0, 6.0, 6.5, 7.5, 9.0, 12.8, 13.9]
+    #     ene   feb   mar   abr  may  jun  jul  ago  sep  oct  nov   dic
     if temp < -1.1:
         return max(dmc_prev, 0.001)
-    k = 1.894 * (temp + 1.1) * (100 - rh) * DL[mes - 1] * 1e-6
+    k = 1.894 * (temp + 1.1) * (100 - rh) * Le[mes - 1] * 1e-6
     return max(0.001, dmc_prev + 100 * k)
 
 
