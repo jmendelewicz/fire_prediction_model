@@ -4,8 +4,9 @@
 # MAGIC
 # MAGIC Ingesta incremental de todas las fuentes de datos crudos a tablas Delta
 # MAGIC usando Databricks Auto Loader (Structured Streaming).
-# MAGIC **Nota:** Land cover y población van directo a Silver como features
-# MAGIC estáticas — no pasan por Bronze.
+# MAGIC
+# MAGIC **Fuentes:** ERA5, NASA FIRMS, MODIS NDVI, MODIS Land Cover, Open-Meteo.
+# MAGIC Población y distancia a rutas son features estáticas en `aux_grid_pampa`.
 
 # COMMAND ----------
 
@@ -30,6 +31,7 @@ import shutil
 PATH_NASA           = "/Volumes/fire_risk_project/00_landing/nasa_files"
 PATH_ERA5           = "/Volumes/fire_risk_project/00_landing/era5_files"
 PATH_NDVI           = "/Volumes/fire_risk_project/00_landing/modis_ndvi"
+PATH_LC             = "/Volumes/fire_risk_project/00_landing/modis_static"
 PATH_METEO_SEED     = "/Volumes/fire_risk_project/00_landing/open_meteo_forecast/seed"
 PATH_METEO_FORECAST = "/Volumes/fire_risk_project/00_landing/open_meteo_forecast/forecast"
 
@@ -37,6 +39,7 @@ PATH_METEO_FORECAST = "/Volumes/fire_risk_project/00_landing/open_meteo_forecast
 TABLE_NASA       = "fire_risk_project.01_bronze.bronze_nasa_firms"
 TABLE_ERA5       = "fire_risk_project.01_bronze.bronze_era5"
 TABLE_NDVI       = "fire_risk_project.01_bronze.bronze_modis_ndvi"
+TABLE_LC         = "fire_risk_project.01_bronze.bronze_land_cover"
 TABLE_METEO_SEED = "fire_risk_project.01_bronze.bronze_openmeteo_seed"
 TABLE_METEO_FC   = "fire_risk_project.01_bronze.bronze_openmeteo_forecast"
 
@@ -46,10 +49,12 @@ BASE_PROC = "/Volumes/fire_risk_project/01_bronze/vol_procesamiento"
 CP_NASA  = f"{BASE_PROC}/nasa/checkpoint"
 CP_ERA5  = f"{BASE_PROC}/era5/checkpoint"
 CP_NDVI  = f"{BASE_PROC}/ndvi/checkpoint"
+CP_LC    = f"{BASE_PROC}/lc/checkpoint"
 
 SCH_NASA  = f"{BASE_PROC}/nasa/schema"
 SCH_ERA5  = f"{BASE_PROC}/era5/schema"
 SCH_NDVI  = f"{BASE_PROC}/ndvi/schema"
+SCH_LC    = f"{BASE_PROC}/lc/schema"
 
 # COMMAND ----------
 
@@ -69,6 +74,7 @@ def necesita_ingestar(nombre_tabla, checkpoint_path):
 nasa_needs_ingest = necesita_ingestar(TABLE_NASA, CP_NASA)
 era5_needs_ingest = necesita_ingestar(TABLE_ERA5, CP_ERA5)
 ndvi_needs_ingest = necesita_ingestar(TABLE_NDVI, CP_NDVI)
+lc_needs_ingest   = necesita_ingestar(TABLE_LC,   CP_LC)
 
 # COMMAND ----------
 
@@ -135,6 +141,30 @@ else:
 
 # COMMAND ----------
 
+# MAGIC %md ## MODIS Land Cover (MCD12Q1)
+# MAGIC
+# MAGIC Cobertura del suelo anual. CSV multi-año en `modis_static/`.
+# MAGIC Fluye a Silver (`transform_modis.py`) donde se normaliza.
+
+# COMMAND ----------
+
+if lc_needs_ingest:
+    if os.path.exists(CP_LC):
+        shutil.rmtree(CP_LC)
+        print("Checkpoint LC borrado -> Auto Loader reprocesará desde cero.")
+        
+    procesar_a_bronze(
+        ruta_origen   = PATH_LC,
+        nombre_tabla  = TABLE_LC,
+        checkpoint    = CP_LC,
+        ruta_schema   = SCH_LC,
+        formato       = "csv",
+    )
+else:
+    print("Tabla Land Cover ya existe y está consistente — saltando.")
+
+# COMMAND ----------
+
 # MAGIC %md ## 5 · Verificación
 
 # COMMAND ----------
@@ -144,12 +174,14 @@ else:
 # MAGIC UNION ALL
 # MAGIC SELECT 'ERA5'        AS fuente, COUNT(*) AS registros FROM fire_risk_project.01_bronze.bronze_era5
 # MAGIC UNION ALL
-# MAGIC SELECT 'MODIS NDVI'  AS fuente, COUNT(*) AS registros FROM fire_risk_project.01_bronze.bronze_modis_ndvi;
+# MAGIC SELECT 'MODIS NDVI'  AS fuente, COUNT(*) AS registros FROM fire_risk_project.01_bronze.bronze_modis_ndvi
+# MAGIC UNION ALL
+# MAGIC SELECT 'Land Cover'  AS fuente, COUNT(*) AS registros FROM fire_risk_project.01_bronze.bronze_land_cover;
 
 # COMMAND ----------
 
 # Verificar metadatos de ingesta en cada tabla
-for tabla in [TABLE_NASA, TABLE_ERA5, TABLE_NDVI]:
+for tabla in [TABLE_NASA, TABLE_ERA5, TABLE_NDVI, TABLE_LC]:
     print(f"\n{tabla}:")
     spark.sql(f"""
         SELECT source_filename, ingestion_timestamp

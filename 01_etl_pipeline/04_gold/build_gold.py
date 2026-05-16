@@ -312,7 +312,7 @@ resultados = []
 
 for i, nodo in enumerate(nodos):
     df_nodo = df_pd[df_pd["cell_id"] == nodo].copy()
-    resultados.append(calcular_fwi_serie(df_nodo, FFMC_INIT, DMC_INIT, DC_INIT))
+    resultados.append(calcular_fwi_serie(df_nodo))
     if (i + 1) % 200 == 0 or (i + 1) == total:
         elapsed = (pd.Timestamp.now() - inicio).seconds / 60
         logger.info(f"  [{i+1}/{total}] {elapsed:.1f} min")

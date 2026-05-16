@@ -8,7 +8,6 @@
 # MAGIC **Output:**
 # MAGIC - `/Volumes/fire_risk_project/00_landing/grid_setup/osm_road_distance.csv`
 # MAGIC - `/Volumes/fire_risk_project/00_landing/grid_setup/population_density.csv`
-# MAGIC - `/Volumes/fire_risk_project/00_landing/grid_setup/land_cover_2022_2024.csv`
 
 # COMMAND ----------
 
@@ -38,7 +37,6 @@ GEE_PROJECT = "gee_project_id"   ###
 PATH_GRID_SETUP = "/Volumes/fire_risk_project/00_landing/grid_setup"
 PATH_OSM        = f"{PATH_GRID_SETUP}/osm_road_distance.csv"
 PATH_POP        = f"{PATH_GRID_SETUP}/population_density.csv"
-PATH_LC         = f"{PATH_GRID_SETUP}/land_cover_2022_2024.csv"
 
 TABLE_GRID      = "fire_risk_project.00_landing.aux_grid_pampa"
 
@@ -53,8 +51,7 @@ TIPOS_RUTA  = [
     "residential", "unclassified", "track"
 ]
 
-DELTA    = 0.125
-SCALE_LC = 5000   # escala de muestreo MODIS MCD12Q1
+DELTA = 0.125
 
 # COMMAND ----------
 
@@ -64,18 +61,15 @@ SCALE_LC = 5000   # escala de muestreo MODIS MCD12Q1
 
 osm_exists = os.path.exists(PATH_OSM)
 pop_exists = os.path.exists(PATH_POP)
-lc_exists  = os.path.exists(PATH_LC)
 
-if osm_exists and pop_exists and lc_exists:
-    print("Los 3 archivos ya existen — nada que descargar.")
+if osm_exists and pop_exists:
+    print("Ambos archivos ya existen — nada que descargar.")
     print(f"  {PATH_OSM}")
     print(f"  {PATH_POP}")
-    print(f"  {PATH_LC}")
     dbutils.notebook.exit("SKIP: archivos estáticos ya existen.")
 
-print(f"OSM:        {'OK' if osm_exists else 'FALTA'}")
-print(f"WorldPop:   {'OK' if pop_exists else 'FALTA'}")
-print(f"Land Cover: {'OK' if lc_exists  else 'FALTA'}")
+print(f"OSM:     {'OK' if osm_exists else 'FALTA'}")
+print(f"WorldPop: {'OK' if pop_exists else 'FALTA'}")
 
 # COMMAND ----------
 
@@ -223,104 +217,11 @@ else:
 
 # COMMAND ----------
 
-# MAGIC %md ## 4 · Land Cover anual (MODIS MCD12Q1, 2022-2024)
-# MAGIC
-# MAGIC Extrae cobertura del suelo para los 3 años del período de entrenamiento.
-# MAGIC Se guarda centralizado en grid_setup/ para que el pipeline de entrenamiento
-# MAGIC (Job1) y otros procesos lo lean desde un único lugar.
+# MAGIC %md ## 4 · Verificación
 
 # COMMAND ----------
 
-if not lc_exists:
-    # Inicializar GEE solo si no se inicializó en los pasos anteriores
-    if not pop_exists:
-        print("GEE ya inicializado en el paso de WorldPop.")
-    else:
-        ee.Authenticate()
-        ee.Initialize(project=GEE_PROJECT)
-        print("GEE inicializado")
-
-    fc_puntos = ee.FeatureCollection([
-        ee.Feature(
-            ee.Geometry.Point([float(row.longitude), float(row.latitude)]),
-            {"cell_id": str(row.cell_id)}
-        )
-        for row in df_grid.itertuples()
-    ])
-
-    def extraer_land_cover(anio: int) -> ee.FeatureCollection:
-        """
-        Extrae Land Cover MODIS MCD12Q1 para un año específico.
-        Categorías simplificadas: 0=Otro/Urbano, 1=Cultivo, 2=Vegetación Natural.
-        """
-        imagen     = (ee.ImageCollection("MODIS/061/MCD12Q1")
-                     .filterDate(f"{anio}-01-01", f"{anio}-12-31")
-                     .first()
-                     .select("LC_Type1"))
-        muestreado = imagen.reduceRegions(
-            collection=fc_puntos,
-            reducer=ee.Reducer.first(),
-            scale=SCALE_LC,
-            tileScale=4
-        )
-        def agregar_categoria(feat):
-            lc          = ee.Number(feat.get("first")).int()
-            is_cropland = lc.eq(12).Or(lc.eq(14))          # tipos de cultivo IGBP
-            is_nat_veg  = lc.gte(4).And(lc.lte(11))        # vegetación natural IGBP
-            cat         = ee.Algorithms.If(
-                              is_cropland, 1,
-                              ee.Algorithms.If(is_nat_veg, 2, 0)
-                          )
-            return feat.set({
-                "fecha":           f"{anio}-01-01",
-                "year":            anio,
-                "land_cover_type": lc,
-                "land_cover_cat":  cat,
-            })
-        return muestreado.map(agregar_categoria)
-
-    COLS_LC = ["cell_id", "fecha", "year", "land_cover_type", "land_cover_cat"]
-    dfs_lc  = []
-
-    for anio in [2022, 2023, 2024]:
-        try:
-            fc_anio  = extraer_land_cover(anio)
-            n_total  = fc_anio.size().getInfo()
-            features = []
-            offset, batch = 0, 2000
-            while True:
-                batch_info = fc_anio.toList(batch, offset).getInfo()
-                if not batch_info:
-                    break
-                for f in batch_info:
-                    props = f.get("properties", {})
-                    features.append({c: props.get(c) for c in COLS_LC})
-                offset += len(batch_info)
-                if len(batch_info) < batch:
-                    break
-            df      = pd.DataFrame(features)
-            for c in ["land_cover_type", "land_cover_cat", "year"]:
-                df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
-            dfs_lc.append(df)
-            print(f"  {anio}: {len(df):,} nodos  | dist: {df['land_cover_cat'].value_counts().to_dict()}")
-            time.sleep(0.3)
-        except Exception as e:
-            print(f"  Error {anio}: {e}")
-
-    df_lc = pd.concat(dfs_lc, ignore_index=True)
-    os.makedirs(PATH_GRID_SETUP, exist_ok=True)
-    df_lc.to_csv(PATH_LC, index=False)
-    print(f"Guardado: {PATH_LC}  ({len(df_lc):,} filas, {df_lc['year'].nunique()} años)")
-else:
-    print(f"Land Cover ya existe — saltando.")
-
-# COMMAND ----------
-
-# MAGIC %md ## 5 · Verificación
-
-# COMMAND ----------
-
-for path in [PATH_OSM, PATH_POP, PATH_LC]:
+for path in [PATH_OSM, PATH_POP]:
     if os.path.exists(path):
         df = pd.read_csv(path)
         print(f"OK: {path}  ({len(df):,} filas)")

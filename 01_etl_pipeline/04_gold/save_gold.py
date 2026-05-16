@@ -52,6 +52,7 @@ FINAL_COLS = [
     "dias_secos", "spi_90d",
     "fwi_roll14", "fwi_roll30",
     "temperature_2m_roll30", "wind_speed_10m_roll30",
+    "fwi_vecinos_mean", "fwi_vecinos_max", "fire_vecinos_3d",
 ]
 
 # COMMAND ----------
@@ -126,6 +127,68 @@ df = (
 )
 
 logger.info("Features de ventana calculadas.")
+
+# COMMAND ----------
+
+# MAGIC %md ## Features espaciales de vecindad
+
+# COMMAND ----------
+
+GRID_RES = 0.25
+
+# Parsear lat/lon desde cell_id
+df = (
+    df
+    .withColumn("_lat", F.split("cell_id", "_").getItem(0).cast("double"))
+    .withColumn("_lon", F.split("cell_id", "_").getItem(1).cast("double"))
+)
+
+# Crear tabla de vecinos (self-join por fecha, offset ±0.25°)
+from pyspark.sql.functions import abs as spark_abs
+
+df_neighbors = (
+    df.alias("a")
+    .join(
+        df.select(
+            F.col("cell_id").alias("_n_cell"),
+            F.col("fecha_join").alias("_n_fecha"),
+            F.col("fwi").alias("_n_fwi"),
+            F.col("fire_occurred").alias("_n_fire"),
+            F.col("_lat").alias("_n_lat"),
+            F.col("_lon").alias("_n_lon"),
+        ).alias("b"),
+        on=[
+            F.col("a.fecha_join") == F.col("b._n_fecha"),
+            F.col("a.cell_id") != F.col("b._n_cell"),
+            spark_abs(F.col("a._lat") - F.col("b._n_lat")) <= GRID_RES + 0.001,
+            spark_abs(F.col("a._lon") - F.col("b._n_lon")) <= GRID_RES + 0.001,
+        ],
+        how="left"
+    )
+    .groupBy("a.cell_id", "a.fecha_join")
+    .agg(
+        F.mean("_n_fwi").alias("fwi_vecinos_mean"),
+        F.max("_n_fwi").alias("fwi_vecinos_max"),
+    )
+)
+
+df = df.join(df_neighbors, on=["cell_id", "fecha_join"], how="left")
+
+# Fire in neighbors last 3 days
+w_fire = Window.partitionBy("cell_id").orderBy(F.unix_date(F.col("fecha_join"))).rowsBetween(-3, 0)
+df = df.withColumn(
+    "fire_vecinos_3d",
+    F.when(
+        F.col("fwi_vecinos_mean").isNotNull() & (F.max("fire_occurred").over(w_fire) > 0),
+        F.lit(1)
+    ).otherwise(F.lit(0)).cast(IntegerType())
+)
+
+# Fill NaN for border cells
+df = df.fillna({"fwi_vecinos_mean": 0.0, "fwi_vecinos_max": 0.0})
+df = df.drop("_lat", "_lon")
+
+logger.info("Features espaciales de vecindad calculadas.")
 
 # COMMAND ----------
 

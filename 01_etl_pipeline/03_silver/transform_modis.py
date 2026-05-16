@@ -9,7 +9,9 @@
 # MAGIC - Nulos iniciales imputados con mediana global.
 # MAGIC
 # MAGIC **Land Cover (MCD12Q1):**
-# MAGIC - Anual (2022-2024). CSV descargado por `grid_download_static_data` en grid_setup/.
+# MAGIC - Anual (2022-2024). Ingesta desde Bronze (`bronze_land_cover`).
+# MAGIC - Categorías: 0=Otro/Urbano, 1=Cultivo, 2=Vegetación Natural.
+# MAGIC - **Provider-agnostic:** las transformaciones normalizan los datos
 # MAGIC - Categorías: 0=Otro/Urbano, 1=Cultivo, 2=Vegetación Natural.
 # MAGIC
 # MAGIC **Nota:** dist_road_km y pop_density_km2 ya están en aux_grid_pampa y se propagan
@@ -38,9 +40,9 @@ logger = logging.getLogger("SILVER_MODIS")
 
 CATALOG = "fire_risk_project"
 
-# Inputs — CSV en Landing
-PATH_NDVI = f"/Volumes/{CATALOG}/00_landing/modis_ndvi/ndvi_2022_2024.csv"
-PATH_LC   = f"/Volumes/{CATALOG}/00_landing/grid_setup/land_cover_2022_2024.csv"
+# Inputs — NDVI desde CSV Landing, Land Cover desde Bronze
+PATH_NDVI  = f"/Volumes/{CATALOG}/00_landing/modis_ndvi/ndvi_2022_2024.csv"
+TABLE_LC_BRONZE = f"{CATALOG}.01_bronze.bronze_land_cover"
 
 # Outputs — tablas Delta Silver
 TABLE_NDVI = f"{CATALOG}.02_silver.ndvi_silver"
@@ -129,25 +131,33 @@ logger.info(f"Guardado: {TABLE_NDVI}")
 # COMMAND ----------
 
 # MAGIC %md ## Land Cover (MCD12Q1 — anual)
+# MAGIC
+# MAGIC Lee desde Bronze (`bronze_land_cover`) — no directamente del CSV.
+# MAGIC Transformaciones provider-agnostic: si se cambia el proveedor de datos
+# MAGIC (ej. de MODIS a Copernicus), solo hace falta adaptar el extract + ingest.
+# MAGIC Las transformaciones aquí normalizan al schema Silver esperado.
 
 # COMMAND ----------
 
-logger.info("Procesando Land Cover")
+logger.info("Procesando Land Cover desde Bronze")
 
-df_lc_raw = (
-    spark.read
-    .option("header", "true")
-    .option("inferSchema", "true")
-    .csv(PATH_LC)
-)
+df_lc_raw = spark.read.table(TABLE_LC_BRONZE)
 
+# Transformaciones provider-agnostic:
+# - Normalizar tipos (si el proveedor cambia, ajustar esta sección)
+# - Garantizar categorías esperadas (0/1/2)
+# - Deduplicar por (cell_id, year)
 df_lc = (
     df_lc_raw
     .withColumn("cell_id",         F.col("cell_id").cast(StringType()))
-    .withColumn("fecha",           F.to_date(F.col("fecha"), "yyyy-MM-dd"))
-    .withColumn("year",            F.year(F.col("fecha")).cast(IntegerType()))
+    .withColumn("year",            F.col("year").cast(IntegerType()))
     .withColumn("land_cover_type", F.col("land_cover_type").cast(IntegerType()))
     .withColumn("land_cover_cat",  F.col("land_cover_cat").cast(IntegerType()))
+    # Validar que land_cover_cat esté en el rango esperado
+    .withColumn("land_cover_cat",
+        F.when(F.col("land_cover_cat").isin(0, 1, 2), F.col("land_cover_cat"))
+         .otherwise(0)  # cualquier categoría no reconocida → 0 (Otro)
+    )
     .fillna({"land_cover_cat": 0})
     .select("cell_id", "year", "land_cover_type", "land_cover_cat")
     .dropDuplicates(["cell_id", "year"])

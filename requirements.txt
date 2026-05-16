@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AlertaFuego — Requirements
+# Entorno local de training y análisis. El pipeline ETL corre en Databricks
+# (PySpark + Delta) y no requiere instalación local.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Core scientific stack
+numpy>=2.2,<3.0
+pandas>=2.3,<3.0
+scipy>=1.13
+
+# ML
+xgboost>=3.0,<4.0
+scikit-learn>=1.5,<2.0
+
+# Visualización
+matplotlib>=3.9,<4.0
+
+# Utilitarios (opcionales pero útiles para análisis)
+pyarrow>=15.0       # lectura parquet
+tqdm>=4.66
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notas:
+# - Para correr los notebooks de Databricks (01_etl_pipeline, 03_orchestration,
+#   build_gold, transform_*) se usa el entorno Spark del cluster, no este
+#   requirements local.
+# - earthengine-api se instala en runtime dentro de los notebooks de extracción
+#   ETL Landing (etl_extract_era5, etl_extract_modis), no es necesario aquí.
+# - Para el frontend ver 04_frontend/package.json + `npm install`.
+# ─────────────────────────────────────────────────────────────────────────────

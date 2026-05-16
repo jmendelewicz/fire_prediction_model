@@ -85,7 +85,7 @@ TBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true');
 -- =============================================================================
 -- SILVER LAND COVER: cobertura del suelo anual (MODIS MCD12Q1) 
 -- Una fila por (cell_id, year).
--- Fuente: land_cover_2022_2024.csv en /grid_setup/ (generado por grid_download_static_data).
+-- Fuente: bronze_land_cover (ingestado desde CSV en modis_static/ vía Auto Loader).
 -- NOTA: Categorías -> 0=Urbano/Otro, 1=Cultivo, 2=Vegetación Natural
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS fire_risk_project.`02_silver`.land_cover_silver (

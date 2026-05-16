@@ -1,19 +1,22 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Subregion Classification — RESOLVE Ecoregions 2017
+# MAGIC # Subregion Classification + Static Features Merge (Paso 3 de 3)
 # MAGIC
-# MAGIC Completa `subregion_id` y `subregion_name` en `aux_grid_pampa`
-# MAGIC usando el shapefile oficial RESOLVE Ecoregions 2017.
+# MAGIC Completa `aux_grid_pampa` con:
+# MAGIC - `subregion_id` y `subregion_name` (RESOLVE Ecoregions 2017)
+# MAGIC - `dist_road_km` (desde grid_setup/osm_road_distance.csv)
+# MAGIC - `pop_density_km2` (desde grid_setup/population_density.csv)
 # MAGIC
-# MAGIC **Ejecutar después de grid_setup** — requiere que `aux_grid_pampa` exista.
+# MAGIC **Prerequisitos:**
+# MAGIC 1. `grid_setup` ejecutado (tabla `aux_grid_pampa` con grilla + topografía)
+# MAGIC 2. `grid_download_static_data` ejecutado (archivos CSV en `/grid_setup/`)
+# MAGIC 3. Shapefile subido: `/Volumes/.../ecoregions/Ecoregions2017.zip`
 # MAGIC
-# MAGIC **Prerequisito:** subir el shapefile al volumen:
-# MAGIC `/Volumes/fire_risk_project/00_landing/ecoregions/Ecoregions2017.zip`
-# MAGIC Fuente: https://freegisdata.rtwilson.com (WWF World Ecoregions)
+# MAGIC **Idempotente:** sale si la tabla ya tiene subregiones clasificadas y datos estáticos.
 
 # COMMAND ----------
 
-# MAGIC %pip install geopandas pyogrio pyproj shapely earthengine-api --quiet
+# MAGIC %pip install geopandas pyogrio pyproj shapely --quiet
 
 # COMMAND ----------
 
@@ -22,7 +25,6 @@ import pandas as pd
 from shapely.geometry import Point, box
 import zipfile, os
 import warnings
-from pyspark.sql import SparkSession
 warnings.filterwarnings("ignore")
 
 # COMMAND ----------
@@ -32,6 +34,14 @@ warnings.filterwarnings("ignore")
 # COMMAND ----------
 
 TABLE     = "fire_risk_project.00_landing.aux_grid_pampa"
+
+# Archivos estáticos (generados por grid_download_static_data)
+# Nota: land_cover NO es una feature de la grilla — se procesa en Bronze/Silver/Gold
+PATH_GRID_SETUP = "/Volumes/fire_risk_project/00_landing/grid_setup"
+PATH_OSM        = f"{PATH_GRID_SETUP}/osm_road_distance.csv"
+PATH_POP        = f"{PATH_GRID_SETUP}/population_density.csv"
+
+# Shapefile de ecorregiones
 ZIP_PATH  = "/Volumes/fire_risk_project/00_landing/ecoregions/Ecoregions2017.zip"
 TMP_DIR   = "/tmp/resolve_ecoregions"
 BBOX      = (-69, -43, -55, -27)
@@ -55,45 +65,98 @@ RESOLVE_MAP = {
 
 # COMMAND ----------
 
-# MAGIC %md ## Verificación de Idempotencia
+# MAGIC %md ## Verificación de prerequisitos
 
 # COMMAND ----------
 
+# 1. Tabla base
 try:
-    df_check  = spark.table(TABLE).toPandas()
-    n_clasif  = (df_check["subregion_id"] != 0).sum()
-    pct_otro  = (df_check["subregion_name"] == "Otro").mean() * 100
-
-    if n_clasif > 0 and pct_otro < 5:
-        print(f"Subregiones ya clasificadas ({n_clasif:,} nodos, {pct_otro:.1f}% sin clasificar) — saliendo.")
-        dbutils.notebook.exit("SKIP: subregiones ya clasificadas.")
-    else:
-        print(f"Clasificando subregiones ({n_clasif:,} nodos clasificados, {pct_otro:.1f}% sin clasificar)...")
+    df_grid = spark.table(TABLE).toPandas()
+    print(f"Grilla cargada: {len(df_grid):,} nodos")
 except Exception:
-    print("Tabla no existe o sin subregiones — clasificando...")
+    raise RuntimeError("aux_grid_pampa no existe. Correr grid_setup primero.")
 
-# COMMAND ----------
+# 2. Archivos estáticos
+faltantes = [p for p in [PATH_OSM, PATH_POP] if not os.path.exists(p)]
+if faltantes:
+    raise FileNotFoundError(
+        f"Archivos estáticos no encontrados: {faltantes}\n"
+        "Correr grid_download_static_data primero."
+    )
 
-# MAGIC %md ## 1 · Cargar grilla existente
-
-# COMMAND ----------
-
-# DBTITLE 1,Untitled
-df_grid = spark.table(TABLE).toPandas()
-print(f"Grilla: {len(df_grid):,} nodos")
-print(f"Subregiones actuales: {df_grid['subregion_name'].value_counts().to_dict()}")
-
-# COMMAND ----------
-
-# MAGIC %md ## 2 · Extraer shapefile RESOLVE
-
-# COMMAND ----------
-
+# 3. Shapefile
 if not os.path.exists(ZIP_PATH):
     raise FileNotFoundError(
-        f"No se encontró el shapefile RESOLVE en {ZIP_PATH}\n"
-        "Subir Ecoregions2017.zip al volumen ecoregions/ antes de continuar."
+        f"No se encontró {ZIP_PATH}\n"
+        "Subir Ecoregions2017.zip al volumen ecoregions/."
     )
+
+# COMMAND ----------
+
+# MAGIC %md ## Idempotencia
+# MAGIC
+# MAGIC Verifica que la tabla tenga la morfología y los datos completos:
+# MAGIC - Todas las columnas presentes
+# MAGIC - Subregiones clasificadas (>95% de nodos válidos)
+# MAGIC - dist_road_km y pop_density_km2 con cobertura ≥ 95% de los nodos del CSV
+
+# COMMAND ----------
+
+completar = False  # Si True, hay que re-ejecutar
+
+# 1. Verificar columnas
+# land_cover_cat no es columna de la grilla — fluye por el pipeline
+COLS_REQUERIDAS = {"subregion_id", "subregion_name", "dist_road_km", "pop_density_km2"}
+cols_faltantes  = COLS_REQUERIDAS - set(df_grid.columns)
+if cols_faltantes:
+    print(f"⚠ Columnas faltantes en la tabla: {cols_faltantes}")
+    completar = True
+
+n_valid = len(df_grid[df_grid["is_valid"] == True]) if "is_valid" in df_grid.columns else len(df_grid)
+
+if not completar:
+    # 2. Verificar subregiones clasificadas
+    n_clasif = (df_grid["subregion_id"] != 0).sum()
+    pct_clasif = n_clasif / n_valid * 100 if n_valid > 0 else 0
+    if pct_clasif < 95:
+        print(f"⚠ Subregiones: {n_clasif:,}/{n_valid:,} = {pct_clasif:.1f}% (< 95%)")
+        completar = True
+    else:
+        print(f"✓ Subregiones: {n_clasif:,}/{n_valid:,} = {pct_clasif:.1f}%")
+
+    # 3. Verificar dist_road_km contra CSV
+    df_osm_check      = pd.read_csv(PATH_OSM)
+    n_osm_csv         = len(df_osm_check)
+    n_osm_tabla       = df_grid["dist_road_km"].notna().sum()
+    pct_osm           = n_osm_tabla / n_osm_csv * 100 if n_osm_csv > 0 else 0
+    if pct_osm < 95:
+        print(f"⚠ dist_road_km: {n_osm_tabla:,} en tabla vs {n_osm_csv:,} en CSV = {pct_osm:.1f}% (< 95%)")
+        completar = True
+    else:
+        print(f"✓ dist_road_km: {n_osm_tabla:,}/{n_osm_csv:,} = {pct_osm:.1f}%")
+
+    # 4. Verificar pop_density_km2 contra CSV
+    df_pop_check      = pd.read_csv(PATH_POP)
+    n_pop_csv         = len(df_pop_check)
+    n_pop_tabla       = df_grid["pop_density_km2"].notna().sum()
+    pct_pop           = n_pop_tabla / n_pop_csv * 100 if n_pop_csv > 0 else 0
+    if pct_pop < 95:
+        print(f"⚠ pop_density_km2: {n_pop_tabla:,} en tabla vs {n_pop_csv:,} en CSV = {pct_pop:.1f}% (< 95%)")
+        completar = True
+    else:
+        print(f"✓ pop_density_km2: {n_pop_tabla:,}/{n_pop_csv:,} = {pct_pop:.1f}%")
+
+if not completar:
+    print("\nTabla completa — saliendo.")
+    dbutils.notebook.exit("SKIP: tabla ya tiene subregiones + estáticos completos.")
+
+print("\n→ Datos incompletos — re-ejecutando clasificación y merge de estáticos...")
+
+# COMMAND ----------
+
+# MAGIC %md ## 1 · Clasificar subregiones (RESOLVE Ecoregions)
+
+# COMMAND ----------
 
 os.makedirs(TMP_DIR, exist_ok=True)
 with zipfile.ZipFile(ZIP_PATH, "r") as z:
@@ -111,12 +174,8 @@ print(f"Ecoregiones globales: {len(gdf_resolve):,}")
 
 # COMMAND ----------
 
-# MAGIC %md ## 3 · Filtrar y mapear subregiones pampeanas
-
-# COMMAND ----------
-
-bbox_pampa  = box(*BBOX)
-gdf_pampa   = gdf_resolve[gdf_resolve.intersects(bbox_pampa)].copy()
+bbox_pampa = box(*BBOX)
+gdf_pampa  = gdf_resolve[gdf_resolve.intersects(bbox_pampa)].copy()
 
 gdf_pampa["subregion_id"]   = gdf_pampa["ECO_NAME"].map(
     lambda x: RESOLVE_MAP.get(x, (0, "Otro"))[0]
@@ -137,7 +196,7 @@ for _, r in gdf_subregiones.iterrows():
 
 # COMMAND ----------
 
-# MAGIC %md ## 4 · Spatial join sobre la grilla
+# MAGIC %md ## 2 · Spatial join
 
 # COMMAND ----------
 
@@ -166,18 +225,53 @@ print(f"Sin clasificar (Otro): {pct_otro:.1f}%  — objetivo: < 5%")
 
 # COMMAND ----------
 
-# MAGIC %md ## 5 · Actualizar tabla
+# MAGIC %md ## 3 · Merge datos estáticos (OSM + WorldPop)
 
 # COMMAND ----------
 
-cols_base = [c for c in df_grid.columns if c not in ["subregion_id", "subregion_name"]]
-df_final  = df_grid[cols_base].merge(
-    df_joined[["cell_id", "subregion_id", "subregion_name"]],
-    on="cell_id", how="left"
+print("Cargando archivos estáticos de grid_setup/...")
+
+df_osm = pd.read_csv(PATH_OSM)[["cell_id", "dist_road_km"]]
+df_pop = pd.read_csv(PATH_POP)[["cell_id", "pop_density_km2"]]
+
+df_osm["dist_road_km"]    = pd.to_numeric(df_osm["dist_road_km"],    errors="coerce").clip(lower=0)
+df_pop["pop_density_km2"] = pd.to_numeric(df_pop["pop_density_km2"], errors="coerce").fillna(0.0)
+
+print(f"OSM:      {len(df_osm):,} nodos | dist media: {df_osm['dist_road_km'].mean():.2f} km")
+print(f"WorldPop: {len(df_pop):,} nodos | pop  media: {df_pop['pop_density_km2'].mean():.1f} hab/km²")
+
+# COMMAND ----------
+
+# MAGIC %md ## 4 · Ensamblar tabla final
+
+# COMMAND ----------
+
+# Partir de la grilla base (con topografía), reemplazar subregiones y estáticos
+cols_base = [c for c in df_grid.columns
+             if c not in ["subregion_id", "subregion_name", "dist_road_km", "pop_density_km2"]]
+
+df_final = (
+    df_grid[cols_base]
+    .merge(df_joined[["cell_id", "subregion_id", "subregion_name"]], on="cell_id", how="left")
+    .merge(df_osm, on="cell_id", how="left")
+    .merge(df_pop, on="cell_id", how="left")
 )
+
+# Fillnas
+df_final["subregion_id"]    = df_final["subregion_id"].fillna(0).astype(int)
+df_final["subregion_name"]  = df_final["subregion_name"].fillna("Otro")
+df_final["pop_density_km2"] = df_final["pop_density_km2"].fillna(0.0)
 
 assert len(df_final) == len(df_grid), \
     f"Error: se perdieron nodos ({len(df_final)} vs {len(df_grid)})"
+
+print(f"Tabla final: {len(df_final):,} nodos")
+
+# COMMAND ----------
+
+# MAGIC %md ## 5 · Guardar (overwrite)
+
+# COMMAND ----------
 
 sdf = spark.createDataFrame(df_final)
 (
@@ -198,10 +292,27 @@ print(f"Tabla actualizada: {TABLE}  ({len(df_final):,} nodos)")
 spark.sql(f"""
     SELECT subregion_id, subregion_name,
            COUNT(*) AS nodos,
-           ROUND(AVG(elevation), 0) AS elev_media_m
+           ROUND(AVG(elevation), 0) AS elev_media_m,
+           ROUND(AVG(dist_road_km), 2) AS dist_road_media_km,
+           ROUND(AVG(pop_density_km2), 1) AS pop_media_hab_km2
     FROM {TABLE}
+    WHERE is_valid = true
     GROUP BY subregion_id, subregion_name
     ORDER BY subregion_id
 """).show(truncate=False)
 
-dbutils.notebook.exit(f"OK: subregiones clasificadas en {TABLE}")
+# Verificar completitud
+nulos = spark.sql(f"""
+    SELECT
+        COUNT(*) FILTER (WHERE subregion_id = 0) AS sin_subregion,
+        COUNT(*) FILTER (WHERE dist_road_km IS NULL) AS sin_osm,
+        COUNT(*) FILTER (WHERE pop_density_km2 IS NULL) AS sin_pop,
+        COUNT(*) FILTER (WHERE elevation IS NULL) AS sin_topo
+    FROM {TABLE} WHERE is_valid = true
+""").collect()[0]
+print(f"Nodos sin subregión: {nulos.sin_subregion}")
+print(f"Nodos sin OSM:       {nulos.sin_osm}")
+print(f"Nodos sin WorldPop:  {nulos.sin_pop}")
+print(f"Nodos sin topografía: {nulos.sin_topo}")
+
+dbutils.notebook.exit(f"OK: {TABLE} completa — subregiones + estáticos integrados")

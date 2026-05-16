@@ -1,0 +1,14 @@
+revisión:
+
+- creación de la grilla se hace bien.
+- extracción de los datos, se hace bien, pero no tiene una idempotencia fuerte.
+- La ingesta de los datos se hace bien, creo que con una idempotencia fuerte
+- Para la parte de transform, estoy viendo que el problema esta siendo que se transforman los datos, pero según las necesidades del set de entrenamiento. 
+- Hice toda la parte de la capa gold, pero tengo que terminar de revisar si se corrigieron bien los errores. 
+
+Cosas que hay que arreglar del proyecto:
+
+- tengo que ordenar los catálogos, poniendo carpetas de train y prod para que no se mezclen 
+- Tengo que instalar librerías en el ambiente
+- agregar idempotencia fuerte a los procesos de extracción, que evalúen los archivos extraidos para verificar que están bien. 
+- tengo que revisar que los archivos de procesamiento, ya que estan determinados para procesar datos en el set de entrenamiento, y debería hacerlo para todos los datos que se ingesten. Creo que tiene que ver con que estan hardcodeadas las direcciones, puedo revisarlo. 

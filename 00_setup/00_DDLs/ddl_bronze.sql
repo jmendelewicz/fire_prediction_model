@@ -82,6 +82,25 @@ COMMENT 'MODIS MOD13A2 NDVI con una fila por nodo por compuesto de 16 días'
 TBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true');
 
 -- =============================================================================
+-- BRONZE LAND COVER: cobertura del suelo MODIS MCD12Q1 anual
+-- Una fila por (cell_id, fecha). Datos crudos desde CSV en modis_static/.
+-- La categorización simplificada se hace en Silver.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS fire_risk_project.`01_bronze`.bronze_land_cover (
+    cell_id STRING,
+    fecha STRING,            -- YYYY-MM-DD
+    year INT,                -- año del producto
+    land_cover_type INT,     -- tipo IGBP original MODIS (1-17)
+    land_cover_cat INT,      -- categoría simplificada (0/1/2)
+    -- Metadata de ingesta
+    source_filename STRING,
+    ingestion_timestamp TIMESTAMP
+)
+USING DELTA
+COMMENT 'MODIS MCD12Q1 Land Cover crudo con clasificación IGBP por nodo y año'
+TBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true');
+
+-- =============================================================================
 -- BRONZE FORECAST SEED: historial climático 35 días para seed del FWI
 -- Tabla deslizante: etl_update_seed hace MERGE de 4 días nuevos cada día 
 -- y elimina filas con más de 35 días de antigüedad.

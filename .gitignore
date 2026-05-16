@@ -1,0 +1,80 @@
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# =============================================================================
+# Datasets — NUNCA versionar los CSVs gigantes
+# El training corre sobre save_gold.csv (~1 GB). Generarlo con el ETL de Gold,
+# o descargarlo del volumen Databricks. Documentado en README.md.
+# =============================================================================
+save_gold.csv
+training_dataset_v2.csv
+gold_checkpoint.csv
+*.parquet
+
+# Permitir CSVs chicos del setup (aux_grid_pampa, etc.) si quedan en setup/
+!00_setup/**/*.csv
+
+# =============================================================================
+# Outputs del modelo
+# =============================================================================
+02_ml_model/**/*.png
+02_ml_model/**/*.pkl
+02_ml_model/**/metricas_*.csv
+02_ml_model/**/ssa_convergence*.csv
+02_ml_model/**/threshold_calibration*.csv
+02_ml_model/**/feature_importance*.csv
+# .json del modelo XGBoost queda versionado para reproducir inferencia
+!02_ml_model/**/*xgboost*.json
+!02_ml_model/**/best_params_*.json
+
+# =============================================================================
+# Frontend (React/Vite)
+# =============================================================================
+04_frontend/node_modules/
+04_frontend/dist/
+04_frontend/.vite/
+04_frontend/*.log
+
+# =============================================================================
+# Bases de datos locales / herramientas auxiliares
+# =============================================================================
+ruvector.db
+.swarm/
+.claude/
+
+# =============================================================================
+# Sistema operativo / IDEs
+# =============================================================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# Secretos / credenciales — nunca commitear
+# =============================================================================
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+service_account*.json

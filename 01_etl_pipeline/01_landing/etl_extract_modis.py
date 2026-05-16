@@ -2,8 +2,8 @@
 # MAGIC %md
 # MAGIC # ETL Landing - MODIS NDVI via GEE
 # MAGIC
-# MAGIC Extrae NDVI (MOD13A2, compuesto 16 días) para los 2,266 nodos.
-# MAGIC **Solo NDVI** — Land Cover se descarga en `grid_download_static_data` (setup).
+# MAGIC Extrae NDVI (MOD13A2, compuesto 16 días) para los nodos válidos de `aux_grid_pampa`.
+# MAGIC **Solo NDVI** — Land Cover se ingesta desde `modis_static/` vía Auto Loader en `ingest_datasets.py`.
 # MAGIC
 # MAGIC **Idempotente:** si el archivo ya existe, no vuelve a descargar.
 
@@ -28,7 +28,7 @@ from datetime import datetime
 GEE_PROJECT = "fire-risk-project-19-04"   ###
 
 TABLE_GRID  = "fire_risk_project.00_landing.aux_grid_pampa"
-PATH_NDVI   = "/Volumes/fire_risk_project/00_landing/modis_ndvi"
+PATH_NDVI   = "/Volumes/fire_risk_project/00_landing/ndvi"
 
 START_DATE  = "2022-01-01"
 END_DATE    = "2024-12-31"
@@ -49,6 +49,7 @@ if ndvi_exists:
     dbutils.notebook.exit("SKIP: ndvi_2022_2024.csv ya descargado.")
 
 print("NDVI: FALTA — iniciando extracción")
+
 
 # COMMAND ----------
 
