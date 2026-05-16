@@ -10,7 +10,8 @@
 
 # COMMAND ----------
 
-# MAGIC %run /Workspace/Users/jmendelewicz02@gmail.com/fire_prediction_model/00_setup/00_common_functions/ingest_function
+# AUDIT fix A-5 (2026-05-16): path relativo.
+# MAGIC %run ../../00_setup/00_common_functions/ingest_function
 
 # COMMAND ----------
 

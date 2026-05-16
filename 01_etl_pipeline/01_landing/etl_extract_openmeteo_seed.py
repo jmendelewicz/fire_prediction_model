@@ -9,11 +9,12 @@
 
 # COMMAND ----------
 
-# MAGIC %run /Workspace/Users/jmendelewicz02@gmail.com/fire_prediction_model/00_setup/00_common_functions/openmeteo_client
+# AUDIT fix A-5 (2026-05-16): paths relativos.
+# MAGIC %run ../../00_setup/00_common_functions/openmeteo_client
 
 # COMMAND ----------
 
-# MAGIC %run /Workspace/Users/jmendelewicz02@gmail.com/fire_prediction_model/00_setup/00_common_functions/weather_cleaners
+# MAGIC %run ../../00_setup/00_common_functions/weather_cleaners
 
 # COMMAND ----------
 

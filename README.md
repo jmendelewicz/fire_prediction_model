@@ -1,6 +1,8 @@
-# AlertaFuego — Predicción de Riesgo de Incendio en la Pampa Argentina
+# AlertaFuego — Monitoreo climático-agrícola con módulo de predicción de incendios (Pampa argentina)
 
-> Trabajo final de diplomatura. Implementación de un sistema de predicción de riesgo de incendio basado en XGBoost optimizado por Sparrow Search Algorithm (SSA), inspirado en la metodología de Wang, Yu & Wang (2026), *Spatial Prediction of Forest Fire Risk in Guangdong Province*, AppliedMath 6(1):10. Ver `references/appliedmath-06-00010.pdf`.
+> Trabajo final de diplomatura. Plataforma de monitoreo climático-agrícola con un módulo operativo de **predicción de riesgo de incendios** sobre la región pampeana (2266 nodos a 0.25°). Implementación de XGBoost optimizado por Sparrow Search Algorithm (SSA) + autocorrelación espacial. Inspirado en Wang, Yu & Wang (2026), *Spatial Prediction of Forest Fire Risk in Guangdong Province*, AppliedMath 6(1):10. Ver `references/appliedmath-06-00010.pdf`.
+
+Las features del pipeline (FWI, VPD, soil moisture, NDVI, sequía) son **cross-purpose**: alimentan tanto el modelo de fuegos como un módulo derivado de **estrés agronómico** (documentado en `PROJECT_ARCHITECTURE.md §1` y §6.f como extensión natural).
 
 ---
 
@@ -8,12 +10,12 @@
 
 | Versión | Estado | Notas |
 |---------|--------|-------|
-| **v4**  | **Producción** | XGBoost + SSA + features espaciales (queen contiguity), split temporal honesto, sin leakage |
-| v3      | Archivado en `02_ml_model/legacy/` | Sin features espaciales |
-| v2      | Archivado en `02_ml_model/legacy/` | Base inicial sobre la que se construyeron las versiones siguientes |
-| v1      | Solo histórico (no incluido en repo) | Modelo baseline |
+| **v4**  | **Producción** | XGBoost + SSA + 42 features (38 base + 3 espaciales + interactions in-runtime), split temporal honesto, sin leakage, FWI con tabla Le ajustada a 35°S |
+| v3      | Archivado en `02_ml_model/legacy/` | Sin features espaciales — sirvió de comparación |
+| v2      | Archivado en `02_ml_model/legacy/` | Base inicial |
+| v1      | Solo histórico | Baseline |
 
-Para correr el training canónico:
+Para correr el training canónico (después de bajar `save_gold.csv` del volumen Databricks):
 
 ```bash
 python 02_ml_model/model_v4/train_model_v4.py
@@ -21,10 +23,13 @@ python 02_ml_model/model_v4/train_model_v4.py
 
 Tarda ~15–25 minutos en CPU moderno. Genera en `02_ml_model/model_v4/`:
 - `xgboost_v4.json` — modelo serializado
+- `feature_cols_v4.pkl` — orden exacto de las 42 features (XGBoost es position-sensitive)
+- `ndvi_means_per_cell_v4.csv` — medias persistidas para serving consistency
+- `ndvi_global_mean_v4.json` — fallback global para celdas no presentes en train
 - `best_params_v4.json` — hiperparámetros encontrados por SSA
-- `metricas_v4.csv`, `threshold_calibration_v4.csv`, `feature_importance_v4.csv`
-- `ssa_convergence_v4.csv` — curva de convergencia del SSA
-- `evaluation_v4.png` — plots de ROC, PR, convergencia e importance
+- `metricas_v4.csv` — incluye **MD5 del dataset** y `random_state` (reproducibilidad bit-a-bit)
+- `threshold_calibration_v4.csv`, `feature_importance_v4.csv`, `ssa_convergence_v4.csv`
+- `evaluation_v4.png` — plots ROC, PR, convergencia SSA, top-20 importance
 
 ---
 
@@ -32,94 +37,153 @@ Tarda ~15–25 minutos en CPU moderno. Genera en `02_ml_model/model_v4/`:
 
 ```
 fire_prediction_model/
-├── 00_setup/                       # Setup de la grilla maestra y DDLs (Databricks)
-│   ├── 00_DDLs/                    # CREATE TABLE de bronze/silver/gold/catalog
-│   ├── 00_grid/                    # Generación de aux_grid_pampa (2266 nodos 0.25°×0.25°)
-│   └── 00_common_functions/        # Módulos compartidos: fwi_calculator, gee_helpers, ...
+├── 00_setup/                       # Setup Databricks (one-time)
+│   ├── 00_DDLs/                    # CREATE TABLE bronze/silver/gold/catalog
+│   ├── 00_grid/                    # aux_grid_pampa (2266 nodos 0.25°×0.25°)
+│   └── 00_common_functions/        # fwi_calculator, gee_helpers, openmeteo_client, ...
 │
 ├── 01_etl_pipeline/                # Pipeline Medallion (Databricks)
-│   ├── 01_landing/                 # Extracción a CSV: ERA5, MODIS, NASA FIRMS, OpenMeteo
-│   ├── 02_bronze/                  # Ingest a Delta (auto-loader, idempotente)
-│   ├── 03_silver/                  # Limpieza + normalización + audit
-│   └── 04_gold/                    # OBT (One Big Table) lista para training
+│   ├── 01_landing/                 # Extract a CSV: ERA5, MODIS, NASA FIRMS, OpenMeteo
+│   ├── 02_bronze/                  # ingest_datasets.py (Auto Loader idempotente)
+│   ├── 03_silver/                  # transform_*.py + audit_silver.py
+│   └── 04_gold/                    # build_gold.py + save_gold.py (training)
+│                                   # build_gold_forecast.py (serving — 42 features aligned a v4)
 │
 ├── 02_ml_model/                    # Training local sobre save_gold.csv
-│   ├── model_v4/                   # ← VERSIÓN CANÓNICA
-│   └── legacy/                     # Versiones anteriores (v2, v3) — ver legacy/README.md
+│   ├── model_v4/                   # ← VERSIÓN CANÓNICA + cloud_inference_engine.py
+│   └── legacy/                     # v2, v3 — ver legacy/README.md
 │
-├── 03_orchestration/               # Orquestador maestro Databricks (job diario)
+├── 03_orchestration/               # Orquestador diario Databricks
 │   └── cloud_orchestration_main.ipynb
 │
-├── 04_frontend/                    # Dashboard React/Vite (visualización)
+├── 04_frontend/                    # Dashboard React/Vite (consumer del predictions_ui.json)
 │
-├── references/                     # Paper de referencia + notas del autor
-├── PROJECT_ARCHITECTURE.md         # Descripción extendida de la arquitectura
-├── AUDIT.md                        # Auditoría exhaustiva — hallazgos + plan de fixes
+├── references/                     # Paper de referencia + notas
+├── PROJECT_ARCHITECTURE.md         # Arquitectura completa + roadmap
+├── DATABRICKS_RUNBOOK.md           # Paso-a-paso para correr el ETL en Databricks
+├── AUDIT.md                        # Auditoría exhaustiva
 └── requirements.txt                # Dependencias Python locales (training)
 ```
 
 ---
 
-## Setup local
+## Cómo correr el proyecto end-to-end
 
-```bash
-# 1. Crear entorno
-python -m venv .venv
-source .venv/bin/activate          # Linux/macOS
-# .venv\Scripts\Activate.ps1       # Windows PowerShell
+### 1. Setup en Databricks (one-time)
 
-# 2. Instalar dependencias
-pip install -r requirements.txt
+Ver `DATABRICKS_RUNBOOK.md` § 1-3. Resumen:
 
-# 3. Obtener save_gold.csv (~1 GB)
-# Generarlo con el pipeline ETL en Databricks (01_etl_pipeline/04_gold/),
-# o descargarlo del volumen /Volumes/fire_risk_project/03_gold/training_dataset_v2/.
-# Colocar en la raíz del repo (queda ignorado por .gitignore).
+```sql
+-- En el SQL Editor de Databricks, en orden:
+00_setup/00_DDLs/ddl_catalog.sql
+00_setup/00_DDLs/ddl_bronze.sql
+00_setup/00_DDLs/ddl_silver.sql
+00_setup/00_DDLs/ddl_gold.sql
 ```
 
----
+```python
+# En notebooks Databricks:
+00_setup/00_grid/grid_setup.py
+00_setup/00_grid/grid_subregion_classification.py
+00_setup/00_grid/grid_download_static_data.py   # OSM roads + WorldPop + MODIS LC
+```
 
-## Frontend
+### 2. Setup secrets (one-time)
+
+```bash
+# Crear scope + cargar API key NASA (revocar la vieja primero — ver AUDIT.md CN-1)
+databricks secrets create-scope --scope fire-risk
+databricks secrets put --scope fire-risk --key nasa_firms_api_key
+```
+
+### 3. Pipeline de training (one-time o tras cambios de scope/datos)
+
+Ver `DATABRICKS_RUNBOOK.md` § 4-7.
+
+```
+Landing → Bronze → Silver → audit_silver → build_gold → save_gold
+                                              ↓
+                                      save_gold.csv (~1 GB)
+                                              ↓ download
+                                       train_model_v4.py (local)
+                                              ↓ upload modelo + artefactos
+                                       /Volumes/.../training_dataset_v2/
+```
+
+### 4. Pipeline de serving (diario)
+
+`cloud_orchestration_main.ipynb` corre los 5 pasos del job. Se programa con un Databricks Job (cron 06:00 UTC recomendado).
+
+### 5. Frontend
 
 ```bash
 cd 04_frontend
 npm install
 npm run dev          # desarrollo (http://localhost:5173)
-npm run build        # build de producción → dist/
+npm run build        # build → dist/
 ```
 
 ---
 
-## Pipeline en la nube (Databricks)
+## Setup local (training)
 
-Todos los scripts bajo `00_setup/`, `01_etl_pipeline/` y `03_orchestration/` están pensados para ejecutarse como notebooks de Databricks. No requieren ejecución local. El orquestador `03_orchestration/cloud_orchestration_main.ipynb` arma el job diario:
+```bash
+# 1. Crear entorno
+python -m venv .venv
+.venv\Scripts\Activate.ps1       # Windows PowerShell
+# source .venv/bin/activate      # Linux/macOS
 
-1. `etl_extract_openmeteo_forecast` (Landing — 4 días de forecast)
-2. `transform_openmeteo` (Silver — actualiza ventana 35d + forecast)
-3. `build_gold_forecast` (Gold — features finales para inferencia)
-4. Inferencia (XGBoost v4)
-5. Export JSON → frontend
+# 2. Instalar
+pip install -r requirements.txt
+
+# 3. Obtener save_gold.csv (~1 GB)
+# Generarlo en Databricks (build_gold + save_gold) y descargarlo desde:
+# /Volumes/fire_risk_project/03_gold/training_dataset_v2/training_dataset_v2.csv
+# Renombrarlo a save_gold.csv y dejarlo en la raíz del repo (gitignored).
+
+# 4. Entrenar
+python 02_ml_model/model_v4/train_model_v4.py
+```
 
 ---
 
 ## Metodología (resumen)
 
-- **Grilla**: 2266 nodos sobre la Pampa argentina, resolución 0.25° × 0.25° (~25 km).
-- **Período de entrenamiento**: 2022-01-01 → 2024-12-31.
-- **Split temporal estricto**: `< 2024-07-01` para train, `≥ 2024-07-01` para test. Los últimos ~60 días del train se separan como validation slice para early stopping.
-- **Target**: `fire_occurred ∈ {0, 1}` derivado de NASA FIRMS (VIIRS active fires). Tasa basal ~2.4 %.
-- **Balanceo**: muestreo 1:1 sobre el TRAIN, estratificado por subregión. Test conserva el desbalance real.
-- **FWI**: sistema canadiense (Van Wagner 1987) ajustado a hemisferio sur ~35°S.
-- **Optimización**: SSA con 15 sparrows × 15 iteraciones, early stop por paciencia (3).
-- **Calibración**: dos umbrales óptimos — F1 (balance) y F2 (recall-biased, operación).
+- **Grilla**: 2266 nodos sobre la Pampa argentina, resolución 0.25° (~25 km).
+- **Período**: 2022-01-01 → 2024-12-31 (3 años).
+- **Spin-up FWI**: se descartan los primeros 60 días del training (`>= 2022-03-01`) — DMC/DC necesitan ese tiempo para converger desde `FFMC=85, DMC=6, DC=15`.
+- **Split temporal 3-way**:
+  - Train balanceado 1:1 por subregión: `[2022-03-01, 2024-05-01)`.
+  - Validation (early-stop reference, distribución real ~2.4%): `[2024-05-01, 2024-07-01)`.
+  - **Test held-out**: `[2024-07-01, 2024-12-31]` — nunca toca el modelo.
+- **Target**: `fire_occurred ∈ {0,1}` derivado de NASA FIRMS VIIRS.
+- **FWI**: Van Wagner 1987 + tabla Le ajustada a 35°S (corrección `AUDIT.md` C-8).
+- **Optimización**: SSA 15×15 con early-stop por paciencia, AP en CV 3-fold sobre train balanceado.
+- **Calibración**: dos thresholds — F1 (balance) y F2 (recall-biased, default operativo).
+- **Reproducibilidad**: MD5 del dataset + random_state persistidos en `metricas_v4.csv`.
 
-Detalles en `PROJECT_ARCHITECTURE.md`.
+Detalles completos en `PROJECT_ARCHITECTURE.md`.
+
+---
+
+## Pipeline en la nube (Databricks)
+
+Todos los scripts bajo `00_setup/`, `01_etl_pipeline/` y `03_orchestration/` están pensados para correr como notebooks de Databricks. No requieren ejecución local. Ver `DATABRICKS_RUNBOOK.md` para el orden y criterios de validación.
 
 ---
 
 ## Auditoría
 
-`AUDIT.md` contiene la auditoría completa del proyecto (8 críticos / 13 altos / 9 medios / 5 bajos). Los hallazgos críticos C-1, C-2, C-7 y C-8 fueron corregidos en esta entrega. Los demás están documentados como roadmap.
+`AUDIT.md` contiene la auditoría completa del proyecto. Sumario al 2026-05-16:
+
+| Severidad | Auditoría 2026-05-15 | Auditoría 2026-05-16 | Cerrados | Abiertos (documentados) |
+|-----------|---------------------|---------------------|----------|------------------------|
+| Crítico   | 8                   | +3                  | 11       | 0                      |
+| Alto      | 13                  | +6                  | 11       | 8 (roadmap)            |
+| Medio     | 9                   | +3                  | 6        | 6                      |
+| Bajo      | 5                   | +2                  | 2        | 5                      |
+
+Los críticos cerrados incluyen los leakages metodológicos (C-1 NDVI, C-2 eval_set, C-9 fire_vecinos forward), el bug numérico del FWI (C-8 tabla Le), el frontend roto (C-7), el schema drift train↔serve (C-3/C-4/C-5), y la API key de NASA expuesta (CN-1). Los altos abiertos son trabajos de production-grade (Feature Store, DLT EXPECT, Databricks Jobs) documentados como roadmap en `PROJECT_ARCHITECTURE.md §6`.
 
 ---
 

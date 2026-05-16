@@ -30,7 +30,11 @@ logger = logging.getLogger("GOLD_P1")
 
 # COMMAND ----------
 
-# MAGIC %run /Workspace/Users/jmendelewicz02@gmail.com/fire_prediction_model/00_setup/00_common_functions/fwi_calculator
+# AUDIT fix A-5 (2026-05-16): path relativo. El script igualmente redefine
+# las funciones FWI inline más abajo, por lo cual este %run es informativo
+# (carga el módulo si está disponible, las definiciones inline tienen
+# precedencia y son las que se usan para producir gold_checkpoint.csv).
+# MAGIC %run ../../00_setup/00_common_functions/fwi_calculator
 
 # COMMAND ----------
 

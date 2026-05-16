@@ -36,9 +36,25 @@ logger = logging.getLogger("ETL_NASA")
 
 # COMMAND ----------
 
-# API Key
-# Para configurar: databricks secrets put --scope fire-risk --key nasa_firms_api_key
-NASA_API_KEY = "f3a52021332f5e6530c52aaf0dffe569"
+# API Key — lee desde Databricks Secrets (NUNCA hardcodear).
+#
+# Setup (una sola vez):
+#   1. Generar token en https://firms.modaps.eosdis.nasa.gov/api/area/
+#   2. Crear scope:  databricks secrets create-scope --scope fire-risk
+#   3. Cargar key:   databricks secrets put --scope fire-risk --key nasa_firms_api_key
+#
+# AUDIT fix CN-1 (2026-05-16): la versión previa contenía la API key como
+# literal en código versionado. La key vieja fue revocada y reemplazada por
+# este lookup de secret. Si este script falla por "secret not found",
+# correr el setup de arriba.
+try:
+    NASA_API_KEY = dbutils.secrets.get(scope="fire-risk", key="nasa_firms_api_key")
+except Exception as e:
+    raise RuntimeError(
+        "NASA FIRMS API key no encontrada en Databricks Secrets. "
+        "Configurar con: databricks secrets put --scope fire-risk --key nasa_firms_api_key. "
+        f"Error original: {e}"
+    )
 
 # NASA FIRMS
 SOURCE = "VIIRS_SNPP_SP"
