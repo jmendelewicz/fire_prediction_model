@@ -30,7 +30,7 @@ logger = logging.getLogger("GOLD_P1")
 
 # COMMAND ----------
 
-# AUDIT fix A-5 (2026-05-16): path relativo. El script igualmente redefine
+# Fix A-5 (2026-05-16): path relativo. El script igualmente redefine
 # las funciones FWI inline más abajo, por lo cual este %run es informativo
 # (carga el módulo si está disponible, las definiciones inline tienen
 # precedencia y son las que se usan para producir gold_checkpoint.csv).
@@ -184,7 +184,7 @@ def calcular_dmc(temp, rh, rain, dmc_prev, mes):
     Fuente: Lawson & Armitage (2008), Weather Guide for the Canadian Forest
     Fire Danger Rating System (Tabla 3.4 desplazada 6 meses).
 
-    AUDIT fix C-8: el código anterior usaba la tabla Lf (de DC) para DMC.
+    Fix C-8: el código anterior usaba la tabla Lf (de DC) para DMC.
     Lf toma valores negativos en invierno → DMC colapsaba a 0.001 todo el
     invierno austral, inconsistente con el modelo de Van Wagner. Le es
     siempre positivo (correcto físicamente: la materia orgánica siempre

@@ -11,7 +11,7 @@
 # MAGIC **Input:**  `ndvi_means_per_cell_v4.csv`  (medias por celda fitted on train — para `ndvi_anomaly`)
 # MAGIC **Output:** `03_gold.forecast_gold_temp`   (solo días de forecast, is_forecast=True)
 # MAGIC
-# MAGIC **AUDIT fix C-3/C-4/C-5 (2026-05-16):** la versión anterior producía
+# MAGIC **Fix C-3/C-4/C-5 (2026-05-16):** la versión anterior producía
 # MAGIC 34 features. El modelo v4 entrenado consume 42 features (35 base + 4
 # MAGIC interacciones + 3 espaciales). Esta versión computa las 8 features
 # MAGIC faltantes con la misma lógica que `02_ml_model/model_v4/train_model_v4.py`:
@@ -84,11 +84,11 @@ FINAL_COLS = [
     "dias_secos", "spi_90d",
     "fwi_roll14", "fwi_roll30",
     "temperature_2m_roll30", "wind_speed_10m_roll30",
-    # Espaciales (AUDIT C-5 fix)
+    # Espaciales (C-5 fix)
     "fwi_vecinos_mean", "fwi_vecinos_max", "fire_vecinos_3d",
-    # Interacciones (AUDIT C-3 fix — same as add_features in train_model_v4.py)
+    # Interacciones (C-3 fix — same as add_features in train_model_v4.py)
     "fwi_x_vpd", "temp_x_dry", "wind_x_fwi",
-    # NDVI anomaly (AUDIT C-1 fix con persistencia de medias del training)
+    # NDVI anomaly (C-1 fix con persistencia de medias del training)
     "ndvi_anomaly",
 ]
 

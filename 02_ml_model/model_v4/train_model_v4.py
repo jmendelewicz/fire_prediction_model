@@ -7,7 +7,7 @@ by adding spatial neighbor features (queen contiguity, 8-cell):
   - fwi_vecinos_max:  max  FWI of adjacent cells on the same day
   - fire_vecinos_3d:  1 if any neighbor had fire in the previous 3 days
 
-Methodology fixes vs. earlier runs (see AUDIT.md for details):
+Methodology fixes vs. earlier runs:
   • C-1 (NDVI anomaly leakage): the per-cell NDVI mean used to compute
     `ndvi_anomaly` is now fit ONLY on rows with fecha_join < TEMPORAL_SPLIT_DATE.
     Previously it averaged over the full dataset, leaking future info.
@@ -16,7 +16,7 @@ Methodology fixes vs. earlier runs (see AUDIT.md for details):
     is carved out of the train period and used as XGBoost's eval_set.
   • A-4 (paths): relative paths via Path(__file__). No hardcoded Windows paths.
 
-Anexo fixes (AUDIT.md, 2026-05-16):
+Anexo fixes:
   • Spin-up FWI: drop rows with fecha_join < SPIN_UP_END. The FWI sequential
     computation starts from arbitrary initials (FFMC=85, DMC=6, DC=15) and
     needs ~30-60 days to stabilize. Training on the spin-up window adds
@@ -53,7 +53,7 @@ import xgboost as xgb
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ── Paths (relative to repo root, portable across machines) ─────────────────
-# AUDIT fix A-4: removed hardcoded "D:\Prueba técnica\..." absolute paths.
+# Fix A-4: removed hardcoded "D:\Prueba técnica\..." absolute paths.
 SCRIPT_DIR = Path(__file__).resolve().parent             # 02_ml_model/model_v4/
 REPO_ROOT  = SCRIPT_DIR.parent.parent                    # fire_prediction_model/
 DATA_PATH  = REPO_ROOT / "save_gold.csv"                 # ~1 GB, not versioned (see .gitignore)
@@ -65,12 +65,12 @@ OUT_DIR.mkdir(exist_ok=True)
 #   model except for the final report. Simulates predicting an unseen future.
 # Validation set: rows of train_full with fecha_join ∈ [VAL_SPLIT, TEMPORAL_SPLIT).
 #   Used as eval_set for XGBoost early stopping, replacing the previous
-#   (leaky) usage of the test set as eval_set (AUDIT fix C-2).
+#   (leaky) usage of the test set as eval_set (Fix C-2).
 # Spin-up FWI: drop everything before SPIN_UP_END so the model doesn't learn
 #   from the warmup window where DMC/DC haven't stabilized from their initials.
 TEMPORAL_SPLIT_DATE   = "2024-07-01"
 VALIDATION_SPLIT_DATE = "2024-05-01"
-SPIN_UP_END           = "2022-03-01"   # AUDIT Anexo: ~60-day FWI warmup discard
+SPIN_UP_END           = "2022-03-01"   # Note: ~60-day FWI warmup discard
 
 # ── SSA & misc config ───────────────────────────────────────────────────────
 RANDOM_STATE = 42
@@ -117,7 +117,7 @@ def load_data():
     if n_dupes > 0:
         print(f"   WARNING: Dropped {n_dupes:,} duplicate rows")
 
-    # AUDIT Anexo (2026-05-16): drop FWI spin-up window. DMC/DC need ~30-60
+    # Note (2026-05-16): drop FWI spin-up window. DMC/DC need ~30-60
     # days to stabilize from initial values (FFMC=85, DMC=6, DC=15).
     # Training on pre-stabilization rows adds noise to the most important
     # feature without buying signal.
@@ -209,7 +209,7 @@ def add_spatial_features(df):
     df["fwi_vecinos_max"]  = fwi_max_arr
 
     # --- Fire in neighbors during the previous 3 days (strict past) ---
-    # AUDIT fix C-9 (found during C-1/C-2 review): the original implementation
+    # Fix C-9 (found during C-1/C-2 review): the original implementation
     # subtracted days when populating the lookup, which meant a row at day T
     # detected a neighbor fire that happens on days {T, T+1, T+2, T+3} —
     # forward-looking leakage. Corrected to add days [+1, +2, +3], so that
@@ -250,7 +250,7 @@ def add_features(df, train_mask):
     """
     Add interaction features + NDVI anomaly + spatial features.
 
-    AUDIT fix C-1: `ndvi_anomaly` previously used a per-cell mean computed
+    Fix C-1: `ndvi_anomaly` previously used a per-cell mean computed
     over the ENTIRE dataset (including the test period ≥ 2024-07-01),
     leaking future information into the train rows. The corrected version
     fits the per-cell mean using ONLY train rows (`train_mask`) and applies
@@ -277,7 +277,7 @@ def add_features(df, train_mask):
     global_train_mean  = ndvi_train["ndvi"].mean()
     df["ndvi_anomaly"] = df["ndvi"] - df["cell_id"].map(ndvi_means_by_cell).fillna(global_train_mean)
 
-    # AUDIT (2026-05-16): persist NDVI means + global fallback so the serving
+    # Note (2026-05-16): persist NDVI means + global fallback so the serving
     # pipeline (build_gold_forecast.py) computes the SAME ndvi_anomaly. Without
     # this, training and serving would use different reference means → silent
     # train↔serve skew on a top-importance feature.
@@ -346,7 +346,7 @@ def split_sample_and_validate(df):
       • df_test           — rows with fecha_join ≥ TEMPORAL_SPLIT_DATE.
                             Held out entirely from the model until the final report.
 
-    AUDIT fix C-2: previously the test set itself was used as eval_set for
+    Fix C-2: previously the test set itself was used as eval_set for
     early stopping (`fit(eval_set=[(X_test, y_test)])`), which let XGBoost
     pick `best_iteration` based on test performance — implicit overfit to
     test. The new design uses a temporal validation slice carved out of the
@@ -524,7 +524,7 @@ def train_final_model(best_params, X_train, y_train, X_val, y_val, X_test):
     Train final model with early stopping on the validation slice, then
     predict on the held-out test set.
 
-    AUDIT fix C-2: previously this function received `(X_test, y_test)` as
+    Fix C-2: previously this function received `(X_test, y_test)` as
     `eval_set`, which let XGBoost pick `best_iteration` by peeking at test
     performance — implicit leakage. The new signature takes a separate
     `(X_val, y_val)` carved from the train period, and only `X_test` (no
@@ -715,7 +715,7 @@ def main():
     with open(OUT_DIR / "best_params_v4.json", "w") as f:
         json.dump(best_params, f, indent=2)
 
-    # AUDIT Anexo (2026-05-16): MD5 of the source dataset for bit-level
+    # Note (2026-05-16): MD5 of the source dataset for bit-level
     # reproducibility. If two trainings produce different metrics with the
     # same MD5, the difference is in code/seed/env — not the data.
     print("\n   Computing dataset MD5...")
@@ -778,7 +778,7 @@ def main():
     print("   V3 (leaky baseline) vs V4 (honest split) Comparison")
     print("=" * 70)
     print("   Note: V3 numbers are from the previous run BEFORE fixing")
-    print("   AUDIT findings C-1 (NDVI anomaly leakage) and C-2 (test set")
+    print("   findings C-1 (NDVI anomaly leakage) and C-2 (test set")
     print("   used as eval_set for early stopping). The V3 numbers are")
     print("   therefore optimistic — a drop in V4 is the expected effect")
     print("   of correctly held-out evaluation, not a regression.")

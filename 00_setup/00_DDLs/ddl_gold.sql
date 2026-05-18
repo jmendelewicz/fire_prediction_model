@@ -12,7 +12,7 @@ USE CATALOG fire_risk_project;
 -- Generada por build_gold.py (parte 1: joins + FWI secuencial) + save_gold.py
 -- (parte 2: rolling + spatial neighbors + export).
 --
--- AUDIT fix M-8/AN-4 (2026-05-16): la versión previa declaraba 33 columnas;
+-- Fix M-8/AN-4 (2026-05-16): la versión previa declaraba 33 columnas;
 -- save_gold.py escribe 38 con overwriteSchema=true, generando schema drift
 -- silencioso. Las 3 columnas espaciales (fwi_vecinos_mean/max, fire_vecinos_3d)
 -- ahora están explícitas.
@@ -85,7 +85,7 @@ TBLPROPERTIES (
 -- temporal (spi_90d, rolling means), features espaciales (queen contiguity),
 -- interacciones e ndvi_anomaly. Se sobreescribe diariamente.
 --
--- AUDIT fix C-3/C-4/C-5/AN-5 (2026-05-16): la versión previa declaraba 36
+-- Fix C-3/C-4/C-5/AN-5 (2026-05-16): la versión previa declaraba 36
 -- columnas con `ndvi_deficit`, pero el modelo v4 entrenado usa `ndvi_anomaly`
 -- y 3 features espaciales que NO estaban en el DDL ni en el build script.
 -- Esta versión refleja exactamente las 42 features que ve XGBoost v4.

@@ -13,7 +13,7 @@
 
 # COMMAND ----------
 
-# AUDIT fix A-5 (2026-05-16): path relativo.
+# Fix A-5 (2026-05-16): path relativo.
 # MAGIC %run ../../00_setup/00_common_functions/gee_helpers
 
 # COMMAND ----------
@@ -29,7 +29,7 @@ from datetime import datetime
 GEE_PROJECT = "fire-risk-project-19-04"   ###
 
 TABLE_GRID  = "fire_risk_project.00_landing.aux_grid_pampa"
-# AUDIT fix CN-2 (2026-05-16): el path antes era /00_landing/ndvi/, pero
+# Fix CN-2 (2026-05-16): el path antes era /00_landing/ndvi/, pero
 # ingest_datasets.py y transform_modis.py leen de /00_landing/modis_ndvi/.
 # Alineado a la convención usada por los downstream.
 PATH_NDVI   = "/Volumes/fire_risk_project/00_landing/modis_ndvi"

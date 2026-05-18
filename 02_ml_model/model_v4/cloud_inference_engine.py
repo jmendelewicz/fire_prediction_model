@@ -17,7 +17,7 @@
 # MAGIC - `/Volumes/fire_risk_project/03_gold/outputs/predictions_ui.json`
 # MAGIC   (consumido por el frontend)
 # MAGIC
-# MAGIC **AUDIT fix C-3/C-6 (2026-05-16):**
+# MAGIC **Fix C-3/C-6 (2026-05-16):**
 # MAGIC La versión legacy en `02_ml_model/legacy/model_v2/cloud_inference_engine.py`
 # MAGIC consumía CSVs crudos de landing y hardcodeaba mocks para features
 # MAGIC faltantes (`solar_radiation=200`, etc.). Esta versión consume la

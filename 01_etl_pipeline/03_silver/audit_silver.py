@@ -12,7 +12,7 @@
 # MAGIC - `land_cover_silver`  — cobertura del suelo anual
 # MAGIC - `silver_openmeteo`   — seed 35d + forecast 4d con FWI calculado (opcional, sólo si pipeline diario)
 # MAGIC
-# MAGIC **AUDIT fix A-7 (2026-05-16):** la versión previa auditaba
+# MAGIC **Fix A-7 (2026-05-16):** la versión previa auditaba
 # MAGIC `static_features_silver`, tabla eliminada cuando `dist_road_km` y
 # MAGIC `pop_density_km2` se propagaron a `aux_grid_pampa` y de ahí a
 # MAGIC `silver_era5`. Los checks de features estáticas ahora se hacen

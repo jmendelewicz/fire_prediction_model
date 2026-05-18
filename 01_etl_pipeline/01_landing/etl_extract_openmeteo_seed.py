@@ -9,7 +9,7 @@
 
 # COMMAND ----------
 
-# AUDIT fix A-5 (2026-05-16): paths relativos.
+# Fix A-5 (2026-05-16): paths relativos.
 # MAGIC %run ../../00_setup/00_common_functions/openmeteo_client
 
 # COMMAND ----------

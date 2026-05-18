@@ -15,7 +15,7 @@
 
 # COMMAND ----------
 
-# AUDIT fix A-5 (2026-05-16): paths relativos en lugar de hardcoded por usuario.
+# Fix A-5 (2026-05-16): paths relativos en lugar de hardcoded por usuario.
 # MAGIC %run ../../00_setup/00_common_functions/gee_helpers
 
 # COMMAND ----------

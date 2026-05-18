@@ -43,7 +43,7 @@ logger = logging.getLogger("ETL_NASA")
 #   2. Crear scope:  databricks secrets create-scope --scope fire-risk
 #   3. Cargar key:   databricks secrets put --scope fire-risk --key nasa_firms_api_key
 #
-# AUDIT fix CN-1 (2026-05-16): la versión previa contenía la API key como
+# Fix CN-1 (2026-05-16): la versión previa contenía la API key como
 # literal en código versionado. La key vieja fue revocada y reemplazada por
 # este lookup de secret. Si este script falla por "secret not found",
 # correr el setup de arriba.

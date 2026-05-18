@@ -18,38 +18,24 @@ env/
 ENV/
 
 # =============================================================================
-# Datasets — NUNCA versionar los CSVs gigantes
-# El training corre sobre save_gold.csv (~1 GB). Generarlo con el ETL de Gold,
-# o descargarlo del volumen Databricks. Documentado en README.md.
+# Datasets — los CSVs grandes se distribuyen como GitHub release, no en el árbol
 # =============================================================================
 save_gold.csv
 training_dataset_v2.csv
 gold_checkpoint.csv
 *.parquet
 
-# Permitir CSVs chicos del setup (aux_grid_pampa, etc.) si quedan en setup/
+# Permitir CSVs chicos del setup (aux_grid_pampa, etc.)
 !00_setup/**/*.csv
 
 # =============================================================================
-# Outputs del modelo
+# Carpetas no publicadas (work-in-progress local)
 # =============================================================================
-02_ml_model/**/*.png
-02_ml_model/**/*.pkl
-02_ml_model/**/metricas_*.csv
-02_ml_model/**/ssa_convergence*.csv
-02_ml_model/**/threshold_calibration*.csv
-02_ml_model/**/feature_importance*.csv
-# .json del modelo XGBoost queda versionado para reproducir inferencia
-!02_ml_model/**/*xgboost*.json
-!02_ml_model/**/best_params_*.json
-
-# =============================================================================
-# Frontend (React/Vite)
-# =============================================================================
-04_frontend/node_modules/
-04_frontend/dist/
-04_frontend/.vite/
-04_frontend/*.log
+_local_notes/
+04_frontend/
+02_ml_model/legacy/
+analyze_gold.py
+compare_datasets.py
 
 # =============================================================================
 # Bases de datos locales / herramientas auxiliares

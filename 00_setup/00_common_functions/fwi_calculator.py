@@ -61,7 +61,7 @@ def calcular_dmc(temp, rh, rain, dmc_prev, mes):
     Fire Danger Rating System", Tabla 3.4 — valores para 30-40°S desplazados
     6 meses respecto del estándar NH.
 
-    AUDIT fix C-8: el código anterior usaba la tabla **Lf (Day-Length Factor
+    Fix C-8: el código anterior usaba la tabla **Lf (Day-Length Factor
     de DC)** para DMC. Lf toma valores negativos en invierno, lo cual hace
     que DMC colapse a 0.001 durante todo el invierno austral — inconsistente
     con la física del modelo Van Wagner (DMC siempre debe secarse algo).

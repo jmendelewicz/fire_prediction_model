@@ -35,7 +35,7 @@ logger = logging.getLogger("SILVER_OPENMETEO")
 
 # COMMAND ----------
 
-# AUDIT fix A-5 (2026-05-16): path relativo.
+# Fix A-5 (2026-05-16): path relativo.
 # MAGIC %run ../../00_setup/00_common_functions/fwi_calculator
 
 # COMMAND ----------
