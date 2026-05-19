@@ -17,26 +17,6 @@ El modelo canónico es **v4**, entrenado con 42 features sobre 2266 nodos a 0.25
 | Precision / Recall @ F2 | 0.218 / 0.634 |
 | Precision / Recall @ F1 | 0.334 / 0.424 |
 
-El threshold operativo recomendado es el F2 (recall-biased, 0.748): el costo de no alertar un fuego es mucho mayor que el de emitir un falso positivo.
-
-Para entrenar (después de generar `save_gold.csv` con el pipeline ETL):
-
-```bash
-python 02_ml_model/model_v4/train_model_v4.py
-```
-
-Tarda ~15–25 minutos en CPU. El script guarda en `02_ml_model/model_v4/`:
-
-- `xgboost_v4.json` — modelo serializado
-- `feature_cols_v4.pkl` — orden de las 42 features (XGBoost es posicional)
-- `ndvi_means_per_cell_v4.csv` + `ndvi_global_mean_v4.json` — medias persistidas para serving consistency
-- `best_params_v4.json` — hiperparámetros de SSA
-- `metricas_v4.csv` — incluye MD5 del dataset y `random_state`
-- `threshold_calibration_v4.csv`, `feature_importance_v4.csv`, `ssa_convergence_v4.csv`
-- `evaluation_v4.png`
-
----
-
 ## Estructura del repositorio
 
 ```
@@ -134,9 +114,3 @@ python 02_ml_model/model_v4/train_model_v4.py
 - **Reproducibilidad**: MD5 del dataset + random_state persistidos en `metricas_v4.csv`.
 
 Las features incluyen el FWI canadiense completo (FFMC, DMC, DC, ISI, BUI, FWI), variables meteorológicas (temperatura, humedad relativa, VPD, viento, precipitación, radiación solar), humedad de suelo en dos profundidades, NDVI y anomalía de NDVI por celda, estáticas (elevación, pendiente, aspecto, distancia a caminos, densidad de población, cobertura), rolling means (14 y 30 días), estacionalidad (sin/cos), calendario agrícola, interacciones (`fwi × vpd`, `temp × dry`, `wind × fwi`), y autocorrelación espacial (`fwi_vecinos_mean`, `fwi_vecinos_max`, `fire_vecinos_3d`).
-
----
-
-## Autoría
-
-Julián Mendelewicz — 2026.
