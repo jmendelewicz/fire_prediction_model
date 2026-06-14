@@ -178,14 +178,35 @@ print(f"\nAlertas (prob calibrada ≥ {threshold:.4f}): {df_gold['risk_alert'].s
 
 # COMMAND ----------
 
+# Detalle clima/FWI por nodo y día para el dashboard (el front lo muestra en
+# NodeDetail). El static (lat/lon/subregión/elevación) lo aporta la grilla en el
+# front (aux_grid_pampa.csv), no se duplica acá. `dc` no es feature del v4
+# (el modelo usa ffmc/dmc/isi/bui/fwi), por eso no se incluye.
+DETAIL = {
+    "temp":   "temperature_2m",
+    "hum":    "relative_humidity",
+    "wind":   "wind_speed_10m",
+    "precip": "precipitation",
+    "fwi":    "fwi",
+    "ffmc":   "ffmc",
+    "dmc":    "dmc",
+    "isi":    "isi",
+    "bui":    "bui",
+}
+DETAIL = {k: v for k, v in DETAIL.items() if v in df_gold.columns}
+
 nodes = []
 for cell_id, group in df_gold.groupby("cell_id"):
     preds = {}
     for _, row in group.iterrows():
-        preds[str(row["date"])] = {
+        rec = {
             "risk_level": float(row["risk_level"]),
             "alert":      int(row["risk_alert"]),
         }
+        for short, col in DETAIL.items():
+            v = row[col]
+            rec[short] = round(float(v), 2) if pd.notnull(v) else None
+        preds[str(row["date"])] = rec
     nodes.append({"cell_id": str(cell_id), "predictions": preds})
 
 output = {

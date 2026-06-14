@@ -29,6 +29,11 @@ gold_checkpoint.csv
 !00_setup/**/*.csv
 
 # =============================================================================
+# API — cache local de predicciones (se descarga del Volume de Databricks)
+# =============================================================================
+05_api/predictions_ui.cache.json
+
+# =============================================================================
 # Carpetas no publicadas (work-in-progress local)
 # =============================================================================
 _local_notes/
