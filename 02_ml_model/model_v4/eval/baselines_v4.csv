@@ -1,0 +1,5 @@
+baseline,auc,ap,note
+prevalence_constant,0.5,0.031303482491394724,always predict base rate 0.0313
+persistence_self_3d,0.7189053903668241,0.12499111329977333,1 if same cell burned in last 3 days
+fwi_only_xgb,0.5519707581080194,0.03474832429481084,XGBoost trained on the single FWI feature
+FULL_MODEL_v4,0.8965344780215139,0.30375504080219073,canonical v4 (all features)

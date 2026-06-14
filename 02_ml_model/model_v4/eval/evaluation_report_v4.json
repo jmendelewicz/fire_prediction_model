@@ -1,0 +1,306 @@
+{
+  "repro": {
+    "auc_full": 0.8965344780215139,
+    "ap_full": 0.30375504080219073,
+    "expected_auc": 0.8965344780215139,
+    "drift": 0.0,
+    "test_prevalence": 0.031303482491394724,
+    "test_size": 416024
+  },
+  "T1_horizon": [
+    {
+      "scenario": "full_features_H1",
+      "auc": 0.8965344780215139,
+      "ap": 0.30375504080219073,
+      "note": "fire_vecinos_3d observed (forecast day 1 / hindcast)"
+    },
+    {
+      "scenario": "fire_vec_masked0_currentmodel",
+      "auc": 0.8878863357720896,
+      "ap": 0.2778156887130654,
+      "note": "deployed model fed 0 (forecast day >=4)"
+    },
+    {
+      "scenario": "retrained_without_fire_vec",
+      "auc": 0.8939269741869205,
+      "ap": 0.29690916596945965,
+      "note": "honest multi-day ceiling (model designed w/o the feature)"
+    }
+  ],
+  "D1_baselines": [
+    {
+      "baseline": "prevalence_constant",
+      "auc": 0.5,
+      "ap": 0.031303482491394724,
+      "note": "always predict base rate 0.0313"
+    },
+    {
+      "baseline": "persistence_self_3d",
+      "auc": 0.7189053903668241,
+      "ap": 0.12499111329977333,
+      "note": "1 if same cell burned in last 3 days"
+    },
+    {
+      "baseline": "fwi_only_xgb",
+      "auc": 0.5519707581080194,
+      "ap": 0.03474832429481084,
+      "note": "XGBoost trained on the single FWI feature"
+    },
+    {
+      "baseline": "FULL_MODEL_v4",
+      "auc": 0.8965344780215139,
+      "ap": 0.30375504080219073,
+      "note": "canonical v4 (all features)"
+    }
+  ],
+  "D2_block_ablation": [
+    {
+      "block_removed": "none (full)",
+      "n_features": 39,
+      "auc": 0.8965344780215139,
+      "ap": 0.30375504080219073,
+      "delta_auc": 0.0,
+      "delta_ap": 0.0
+    },
+    {
+      "block_removed": "spatial",
+      "n_features": 36,
+      "auc": 0.8927952100260066,
+      "ap": 0.29593916219688327,
+      "delta_auc": -0.0037392679955072783,
+      "delta_ap": -0.00781587860530747
+    },
+    {
+      "block_removed": "fwi_system",
+      "n_features": 32,
+      "auc": 0.8960218999077215,
+      "ap": 0.3041094831518207,
+      "delta_auc": -0.0005125781137923502,
+      "delta_ap": 0.0003544423496299465
+    },
+    {
+      "block_removed": "weather",
+      "n_features": 27,
+      "auc": 0.8919256669107547,
+      "ap": 0.2777042698941159,
+      "delta_auc": -0.00460881111075917,
+      "delta_ap": -0.02605077090807484
+    },
+    {
+      "block_removed": "vegetation",
+      "n_features": 37,
+      "auc": 0.8941859599834237,
+      "ap": 0.2987787912063655,
+      "delta_auc": -0.0023485180380902193,
+      "delta_ap": -0.004976249595825211
+    },
+    {
+      "block_removed": "static",
+      "n_features": 32,
+      "auc": 0.8601027029831166,
+      "ap": 0.23015904035339546,
+      "delta_auc": -0.03643177503839723,
+      "delta_ap": -0.07359600044879527
+    },
+    {
+      "block_removed": "seasonality",
+      "n_features": 34,
+      "auc": 0.8937024149892946,
+      "ap": 0.2895382506997697,
+      "delta_auc": -0.0028320630322192786,
+      "delta_ap": -0.01421679010242105
+    },
+    {
+      "block_removed": "interactions",
+      "n_features": 36,
+      "auc": 0.8968983003145294,
+      "ap": 0.30714309870515666,
+      "delta_auc": 0.0003638222930155699,
+      "delta_ap": 0.003388057902965924
+    }
+  ],
+  "D2_shap_top10": [
+    {
+      "feature": "fire_vecinos_3d",
+      "gain_importance": 0.7331292033195496,
+      "shap_mean_abs": 0.5220709443092346
+    },
+    {
+      "feature": "elevation",
+      "gain_importance": 0.02052467316389084,
+      "shap_mean_abs": 0.4984686076641083
+    },
+    {
+      "feature": "pop_density_km2",
+      "gain_importance": 0.012262796983122826,
+      "shap_mean_abs": 0.3255528211593628
+    },
+    {
+      "feature": "solar_radiation",
+      "gain_importance": 0.008261807262897491,
+      "shap_mean_abs": 0.31980469822883606
+    },
+    {
+      "feature": "dia_cos",
+      "gain_importance": 0.006455077324062586,
+      "shap_mean_abs": 0.27291515469551086
+    },
+    {
+      "feature": "subregion_id",
+      "gain_importance": 0.025328610092401505,
+      "shap_mean_abs": 0.26223140954971313
+    },
+    {
+      "feature": "ndvi_anomaly",
+      "gain_importance": 0.0064986529760062695,
+      "shap_mean_abs": 0.16446560621261597
+    },
+    {
+      "feature": "ffmc",
+      "gain_importance": 0.01787380315363407,
+      "shap_mean_abs": 0.11941604316234589
+    },
+    {
+      "feature": "precipitation",
+      "gain_importance": 0.010842274874448776,
+      "shap_mean_abs": 0.11177171766757965
+    },
+    {
+      "feature": "ndvi",
+      "gain_importance": 0.00506728095933795,
+      "shap_mean_abs": 0.10745113343000412
+    }
+  ],
+  "D3_calibration": {
+    "ece": 0.27897984189584674,
+    "bins": [
+      {
+        "bin": "(0.0015899999999999998, 0.045]",
+        "n": 41603,
+        "mean_pred_prob": 0.028348492458462715,
+        "frac_positives": 0.0003365141936879552
+      },
+      {
+        "bin": "(0.045, 0.0776]",
+        "n": 41602,
+        "mean_pred_prob": 0.060715463012456894,
+        "frac_positives": 0.0014903129657228018
+      },
+      {
+        "bin": "(0.0776, 0.119]",
+        "n": 41602,
+        "mean_pred_prob": 0.0972788855433464,
+        "frac_positives": 0.0022835440603817124
+      },
+      {
+        "bin": "(0.119, 0.169]",
+        "n": 41603,
+        "mean_pred_prob": 0.1429186910390854,
+        "frac_positives": 0.0034612888493618247
+      },
+      {
+        "bin": "(0.169, 0.229]",
+        "n": 41602,
+        "mean_pred_prob": 0.19784314930438995,
+        "frac_positives": 0.00538435652132109
+      },
+      {
+        "bin": "(0.229, 0.308]",
+        "n": 41602,
+        "mean_pred_prob": 0.2666527032852173,
+        "frac_positives": 0.008244795923272919
+      },
+      {
+        "bin": "(0.308, 0.412]",
+        "n": 41603,
+        "mean_pred_prob": 0.3576229214668274,
+        "frac_positives": 0.01355671466000048
+      },
+      {
+        "bin": "(0.412, 0.546]",
+        "n": 41602,
+        "mean_pred_prob": 0.4761180877685547,
+        "frac_positives": 0.02223450795634825
+      },
+      {
+        "bin": "(0.546, 0.727]",
+        "n": 41602,
+        "mean_pred_prob": 0.6305482983589172,
+        "frac_positives": 0.050045670881207635
+      },
+      {
+        "bin": "(0.727, 0.989]",
+        "n": 41603,
+        "mean_pred_prob": 0.844783365726471,
+        "frac_positives": 0.20599475999326972
+      }
+    ]
+  },
+  "D4_spatial": [
+    {
+      "subregion_id": 0,
+      "n": 184,
+      "n_fires": 0,
+      "fire_rate": 0.0,
+      "auc": null,
+      "ap": null
+    },
+    {
+      "subregion_id": 1,
+      "n": 143704,
+      "n_fires": 1884,
+      "fire_rate": 0.013110282246840728,
+      "auc": 0.8057200265969151,
+      "ap": 0.07852565537213789
+    },
+    {
+      "subregion_id": 3,
+      "n": 14536,
+      "n_fires": 2134,
+      "fire_rate": 0.14680792515134838,
+      "auc": 0.8215465670727293,
+      "ap": 0.42809771149823284
+    },
+    {
+      "subregion_id": 4,
+      "n": 81144,
+      "n_fires": 638,
+      "fire_rate": 0.007862565315981465,
+      "auc": 0.8952281112714432,
+      "ap": 0.13785266378913058
+    },
+    {
+      "subregion_id": 5,
+      "n": 85008,
+      "n_fires": 2798,
+      "fire_rate": 0.03291454921889705,
+      "auc": 0.8628731084873994,
+      "ap": 0.24537835105348102
+    },
+    {
+      "subregion_id": 6,
+      "n": 62376,
+      "n_fires": 2102,
+      "fire_rate": 0.0336988585353341,
+      "auc": 0.8792593272201571,
+      "ap": 0.24330792606089577
+    },
+    {
+      "subregion_id": 7,
+      "n": 21344,
+      "n_fires": 3455,
+      "fire_rate": 0.16187218890554722,
+      "auc": 0.7984671513891864,
+      "ap": 0.4240187282418988
+    },
+    {
+      "subregion_id": 9,
+      "n": 7728,
+      "n_fires": 12,
+      "fire_rate": 0.0015527950310559005,
+      "auc": 0.852881458441334,
+      "ap": 0.012222783210998714
+    }
+  ],
+  "runtime_min": 5.2061976591746015
+}

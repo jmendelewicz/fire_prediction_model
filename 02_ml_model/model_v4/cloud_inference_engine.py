@@ -41,11 +41,12 @@ from datetime import datetime
 
 CATALOG = "fire_risk_project"
 
-TABLE_FORECAST = f"{CATALOG}.03_gold.forecast_gold_temp"
-PATH_MODEL     = f"/Volumes/{CATALOG}/03_gold/training_dataset_v2/xgboost_v4.json"
-PATH_FEATS     = f"/Volumes/{CATALOG}/03_gold/training_dataset_v2/feature_cols_v4.pkl"
-PATH_METRICS   = f"/Volumes/{CATALOG}/03_gold/training_dataset_v2/metricas_v4.csv"
-PATH_OUTPUT    = f"/Volumes/{CATALOG}/03_gold/outputs/predictions_ui.json"
+TABLE_FORECAST  = f"{CATALOG}.03_gold.forecast_gold_temp"
+PATH_MODEL      = f"/Volumes/{CATALOG}/03_gold/training_dataset_v2/xgboost_v4.json"
+PATH_FEATS      = f"/Volumes/{CATALOG}/03_gold/training_dataset_v2/feature_cols_v4.pkl"
+PATH_METRICS    = f"/Volumes/{CATALOG}/03_gold/training_dataset_v2/metricas_v4.csv"
+PATH_CALIBRATOR = f"/Volumes/{CATALOG}/03_gold/training_dataset_v2/calibrator_v4.json"
+PATH_OUTPUT     = f"/Volumes/{CATALOG}/03_gold/outputs/predictions_ui.json"
 
 # COMMAND ----------
 
@@ -62,16 +63,46 @@ with open(PATH_FEATS, "rb") as f:
     feature_cols = pickle.load(f)
 print(f"Modelo espera {len(feature_cols)} features.")
 
-# Threshold operativo — lee del metricas CSV el F2-optimal (más recall, menos FN).
-# Decisión defendible: en alerta temprana de incendios, FN > FP (un incendio
-# no detectado cuesta más que un falso positivo en una celda lejana).
+# Calibrador (fix R1) — el modelo se entrena con datos balanceados 1:1 mientras
+# la realidad es ~3% de fuego, así que sus probabilidades crudas están infladas
+# (ECE test ~0.28). El calibrador (Platt) las mapea a probabilidades reales
+# (ECE ~0.006) sin alterar el ranking (AUC/AP intactos). Imprescindible para que
+# `risk_level` signifique una probabilidad de verdad en el dashboard/API.
+print(f"Cargando calibrador: {PATH_CALIBRATOR}")
 try:
-    df_metrics = pd.read_csv(PATH_METRICS, index_col=0)
-    threshold  = float(df_metrics.loc["best_f2_threshold", "valor"])
-    print(f"Threshold operativo (F2-optimal): {threshold:.3f}")
+    with open(PATH_CALIBRATOR, "r") as f:
+        calibrator = json.load(f)
+    cal_method = calibrator["method"]
+    # El threshold operativo se recalcula sobre las probabilidades CALIBRADAS.
+    threshold = float(calibrator["f2_threshold_calibrated"])
+    print(f"Calibrador: {cal_method} | threshold F2 calibrado: {threshold:.4f} | "
+          f"ECE {calibrator['ece_test_raw']:.3f} → {calibrator['ece_test_calibrated']:.3f}")
 except Exception as e:
-    threshold = 0.5
-    print(f"WARNING: no se pudo leer best_f2_threshold ({e}). Usando 0.5 como fallback.")
+    calibrator = None
+    # Fallback: threshold F2 sobre prob cruda (legacy, no calibrado).
+    try:
+        df_metrics = pd.read_csv(PATH_METRICS, index_col=0)
+        threshold  = float(df_metrics.loc["best_f2_threshold", "valor"])
+    except Exception:
+        threshold = 0.5
+    print(f"WARNING: sin calibrador ({e}). Usando prob cruda, threshold {threshold:.3f}.")
+
+
+def apply_calibration(raw_prob, calibrator):
+    """
+    Mapea probabilidad cruda → calibrada (fix R1). Aplica Platt manualmente
+    desde los coeficientes en JSON — sin dependencia de la versión de sklearn
+    en el cluster (evita fallos de unpickle en serving).
+        calibrated = sigmoid(a * logit(raw) + b)
+    """
+    if calibrator is None or calibrator.get("method") != "platt":
+        return raw_prob
+    eps = 1e-6
+    p = np.clip(raw_prob, eps, 1 - eps)
+    logit = np.log(p / (1 - p))
+    a = calibrator["platt"]["a"]
+    b = calibrator["platt"]["b"]
+    return 1.0 / (1.0 + np.exp(-(a * logit + b)))
 
 # COMMAND ----------
 
@@ -109,14 +140,17 @@ if "subregion_id" in X.columns:
 if "land_cover_cat" in X.columns:
     X["land_cover_cat"] = X["land_cover_cat"].astype("category")
 
-df_gold["risk_prob"]  = clf.predict_proba(X)[:, 1]
-df_gold["risk_alert"] = (df_gold["risk_prob"] >= threshold).astype(int)
-# Nivel de riesgo para visualización (0-100)
-df_gold["risk_level"] = (df_gold["risk_prob"] * 100).round(1)
+raw_prob               = clf.predict_proba(X)[:, 1]
+df_gold["risk_prob_raw"] = raw_prob
+df_gold["risk_prob"]   = apply_calibration(raw_prob, calibrator)   # calibrada (R1)
+df_gold["risk_alert"]  = (df_gold["risk_prob"] >= threshold).astype(int)
+# Nivel de riesgo para visualización (0-100) — sobre la prob CALIBRADA
+df_gold["risk_level"]  = (df_gold["risk_prob"] * 100).round(1)
 
-print(f"\nDistribución de risk_prob:")
+print(f"\nDistribución de risk_prob (calibrada):")
 print(df_gold["risk_prob"].describe())
-print(f"\nAlertas (prob ≥ {threshold:.3f}): {df_gold['risk_alert'].sum():,} de {len(df_gold):,}")
+print(f"   (cruda media {raw_prob.mean():.3f} → calibrada media {df_gold['risk_prob'].mean():.3f})")
+print(f"\nAlertas (prob calibrada ≥ {threshold:.4f}): {df_gold['risk_alert'].sum():,} de {len(df_gold):,}")
 
 # COMMAND ----------
 
@@ -157,6 +191,7 @@ for cell_id, group in df_gold.groupby("cell_id"):
 output = {
     "generated_at":  datetime.utcnow().isoformat() + "Z",
     "model_version": "v4",
+    "calibration":   (calibrator["method"] if calibrator else "none"),
     "threshold":     threshold,
     "n_nodes":       len(nodes),
     "fechas":        sorted(df_gold["date"].astype(str).unique().tolist()),

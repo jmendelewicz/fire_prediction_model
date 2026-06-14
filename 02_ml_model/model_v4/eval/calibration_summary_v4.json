@@ -1,0 +1,25 @@
+{
+  "selected": "platt",
+  "ece_test_raw": 0.27897984189584674,
+  "ece_test_calibrated": 0.005576816211062935,
+  "f1_threshold_calibrated": 0.15481861243324593,
+  "f2_threshold_calibrated": 0.07006735346265935,
+  "metrics_f1": {
+    "threshold": 0.15481861243324593,
+    "precision": 0.33401874811006954,
+    "recall": 0.4240958304538125,
+    "tp": 5523,
+    "fp": 11012,
+    "fn": 7500,
+    "tn": 391989
+  },
+  "metrics_f2": {
+    "threshold": 0.07006735346265935,
+    "precision": 0.2184994045256054,
+    "recall": 0.6339553098364432,
+    "tp": 8256,
+    "fp": 29529,
+    "fn": 4767,
+    "tn": 373472
+  }
+}

@@ -1,0 +1,4 @@
+scenario,auc,ap,note
+full_features_H1,0.8965344780215139,0.30375504080219073,fire_vecinos_3d observed (forecast day 1 / hindcast)
+fire_vec_masked0_currentmodel,0.8878863357720896,0.2778156887130654,deployed model fed 0 (forecast day >=4)
+retrained_without_fire_vec,0.8939269741869205,0.29690916596945965,honest multi-day ceiling (model designed w/o the feature)

@@ -1,0 +1,12 @@
+{
+  "method": "platt",
+  "f1_threshold_calibrated": 0.15481861243324593,
+  "f2_threshold_calibrated": 0.07006735346265935,
+  "ece_test_raw": 0.27897984189584674,
+  "ece_test_calibrated": 0.005576816211062935,
+  "platt": {
+    "a": 1.1119767646053036,
+    "b": -3.797220362673082
+  },
+  "formula": "calibrated = 1/(1+exp(-(a*logit(raw)+b))), logit(p)=log(p/(1-p))"
+}
