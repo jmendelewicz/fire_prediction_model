@@ -204,6 +204,7 @@ for tabla in [TABLE_NASA, TABLE_ERA5, TABLE_NDVI, TABLE_LC]:
 
 import pandas as pd
 import os
+from pyspark.sql import functions as F
 
 fecha_corte_seed = (pd.Timestamp.now() - pd.Timedelta(days=35)).strftime("%Y-%m-%d")
 
