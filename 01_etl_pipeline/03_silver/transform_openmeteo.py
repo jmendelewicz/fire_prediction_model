@@ -49,8 +49,8 @@ CATALOG = "fire_risk_project"
 TABLE_SEED     = f"{CATALOG}.01_bronze.bronze_openmeteo_seed"
 TABLE_FORECAST = f"{CATALOG}.01_bronze.bronze_openmeteo_forecast"
 TABLE_GRID     = f"{CATALOG}.00_landing.aux_grid_pampa"
-TABLE_NDVI     = f"{CATALOG}.02_silver.ndvi_silver"
-TABLE_LC       = f"{CATALOG}.02_silver.land_cover_silver"
+TABLE_NDVI     = f"{CATALOG}.02_silver.silver_ndvi"
+TABLE_LC       = f"{CATALOG}.02_silver.silver_land_cover"
 TABLE_OUTPUT   = f"{CATALOG}.02_silver.silver_openmeteo"
 
 # Fecha de corte: hoy es el primer día de forecast
