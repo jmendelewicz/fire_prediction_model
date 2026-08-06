@@ -1,6 +1,3 @@
-# =============================================================================
-# Python
-# =============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -17,34 +14,21 @@ venv/
 env/
 ENV/
 
-# =============================================================================
-# Datasets — los CSVs grandes se distribuyen como GitHub release, no en el árbol
-# =============================================================================
 save_gold.csv
 training_dataset_v2.csv
 gold_checkpoint.csv
 *.parquet
 
-# Permitir CSVs chicos del setup (aux_grid_pampa, etc.)
 !00_setup/**/*.csv
 
-# =============================================================================
-# API — cache local de predicciones (se descarga del Volume de Databricks)
-# =============================================================================
 05_api/predictions_ui.cache.json
 
-# =============================================================================
-# Carpetas no publicadas (work-in-progress local)
-# =============================================================================
 _local_notes/
 04_frontend/
 02_ml_model/legacy/
 analyze_gold.py
 compare_datasets.py
 
-# =============================================================================
-# Sistema operativo / IDEs
-# =============================================================================
 .DS_Store
 Thumbs.db
 .idea/
@@ -53,9 +37,6 @@ Thumbs.db
 *.swo
 *~
 
-# =============================================================================
-# Secretos / credenciales — nunca commitear
-# =============================================================================
 .env
 .env.local
 *.pem
