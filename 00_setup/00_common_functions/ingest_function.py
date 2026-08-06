@@ -1,11 +1,5 @@
 # Databricks notebook source
-# MAGIC %md
-# MAGIC #00a - Common Functions utilizadas en el proceso de ETL. 
-# MAGIC
-# MAGIC Se importa desde otros notebooks con: %run ./00_ingest_function
-# MAGIC
-# MAGIC **Funciones disponibles:**
-# MAGIC 1. `procesar_a_bronze()` — ingesta CSV o JSON desde volumen Landing a tabla Delta Bronze
+# MAGIC %md # Bronze Ingest Function
 
 # COMMAND ----------
 
@@ -29,23 +23,9 @@ def procesar_a_bronze(
     nombre_tabla: str,
     checkpoint: str,
     ruta_schema: str,
-    formato: str,   # "csv" o "json"
+    formato: str,
 ) -> None:
-    """
-    Ingesta incremental desde Landing a Bronze usando Databricks Auto Loader.
-
-    Lee archivos CSV o JSON desde un volumen de Unity Catalog, agrega
-    metadatos de ingesta (timestamp + path de origen) y escribe en una
-    tabla Delta en modo append.
-
-    Args:
-        ruta_origen:   Path del volumen landing  (ej. /Volumes/catalog/schema/vol)
-        nombre_tabla:  Tabla Delta destino        (ej. catalog.schema.tabla)
-        checkpoint:    Path para el checkpoint de Structured Streaming
-        ruta_schema:   Path donde Auto Loader persiste el schema inferido
-        formato:       Formato del archivo fuente: "csv" o "json"
-    """
-    logger.info(f"Inicio ingesta → {nombre_tabla} | origen: {ruta_origen}")
+    logger.info(f"INGEST START TABLE {nombre_tabla} SOURCE {ruta_origen}")
 
     try:
         df_raw = (
@@ -56,8 +36,8 @@ def procesar_a_bronze(
             .option("cloudFiles.inferColumnTypes", "true")
             .option("cloudFiles.schemaEvolutionMode", "rescue")
             .option("cloudFiles.schemaLocation", ruta_schema)
-            .option("header", "true")       # aplica para CSV
-            .option("multiline", "true")    # aplica para JSON
+            .option("header", "true")
+            .option("multiline", "true")
             .load(ruta_origen)
         )
 
@@ -78,12 +58,12 @@ def procesar_a_bronze(
         )
 
         query.awaitTermination()
-        logger.info(f"Completado: {nombre_tabla}")
+        logger.info(f"INGEST DONE TABLE {nombre_tabla}")
 
     except Exception as e:
-        logger.error(f"Error en {nombre_tabla}: {e}")
-        logger.warning("Tabla salteada, continuar con la siguiente")
+        logger.error(f"INGEST FAILED TABLE {nombre_tabla} REASON {e}")
+        logger.warning("TABLE SKIPPED MOVING TO NEXT ONE")
 
 # COMMAND ----------
 
-logger.info("funciones cargads")
+logger.info("BRONZE INGEST FUNCTION LOADED")

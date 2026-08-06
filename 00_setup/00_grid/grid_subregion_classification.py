@@ -35,13 +35,10 @@ warnings.filterwarnings("ignore")
 
 TABLE     = "fire_risk_project.00_landing.aux_grid_pampa"
 
-# Archivos estáticos (generados por grid_download_static_data)
-# Nota: land_cover NO es una feature de la grilla — se procesa en Bronze/Silver/Gold
 PATH_GRID_SETUP = "/Volumes/fire_risk_project/00_landing/grid_setup"
 PATH_OSM        = f"{PATH_GRID_SETUP}/osm_road_distance.csv"
 PATH_POP        = f"{PATH_GRID_SETUP}/population_density.csv"
 
-# Shapefile de ecorregiones
 ZIP_PATH  = "/Volumes/fire_risk_project/00_landing/ecoregions/Ecoregions2017.zip"
 TMP_DIR   = "/tmp/resolve_ecoregions"
 BBOX      = (-69, -43, -55, -27)
@@ -69,14 +66,12 @@ RESOLVE_MAP = {
 
 # COMMAND ----------
 
-# 1. Tabla base
 try:
     df_grid = spark.table(TABLE).toPandas()
     print(f"Grilla cargada: {len(df_grid):,} nodos")
 except Exception:
     raise RuntimeError("aux_grid_pampa no existe. Correr grid_setup primero.")
 
-# 2. Archivos estáticos
 faltantes = [p for p in [PATH_OSM, PATH_POP] if not os.path.exists(p)]
 if faltantes:
     raise FileNotFoundError(
@@ -84,7 +79,6 @@ if faltantes:
         "Correr grid_download_static_data primero."
     )
 
-# 3. Shapefile
 if not os.path.exists(ZIP_PATH):
     raise FileNotFoundError(
         f"No se encontró {ZIP_PATH}\n"
@@ -102,10 +96,8 @@ if not os.path.exists(ZIP_PATH):
 
 # COMMAND ----------
 
-completar = False  # Si True, hay que re-ejecutar
+completar = False
 
-# 1. Verificar columnas
-# land_cover_cat no es columna de la grilla — fluye por el pipeline
 COLS_REQUERIDAS = {"subregion_id", "subregion_name", "dist_road_km", "pop_density_km2"}
 cols_faltantes  = COLS_REQUERIDAS - set(df_grid.columns)
 if cols_faltantes:
@@ -115,7 +107,6 @@ if cols_faltantes:
 n_valid = len(df_grid[df_grid["is_valid"] == True]) if "is_valid" in df_grid.columns else len(df_grid)
 
 if not completar:
-    # 2. Verificar subregiones clasificadas
     n_clasif = (df_grid["subregion_id"] != 0).sum()
     pct_clasif = n_clasif / n_valid * 100 if n_valid > 0 else 0
     if pct_clasif < 95:
@@ -124,7 +115,6 @@ if not completar:
     else:
         print(f"✓ Subregiones: {n_clasif:,}/{n_valid:,} = {pct_clasif:.1f}%")
 
-    # 3. Verificar dist_road_km contra CSV
     df_osm_check      = pd.read_csv(PATH_OSM)
     n_osm_csv         = len(df_osm_check)
     n_osm_tabla       = df_grid["dist_road_km"].notna().sum()
@@ -135,7 +125,6 @@ if not completar:
     else:
         print(f"✓ dist_road_km: {n_osm_tabla:,}/{n_osm_csv:,} = {pct_osm:.1f}%")
 
-    # 4. Verificar pop_density_km2 contra CSV
     df_pop_check      = pd.read_csv(PATH_POP)
     n_pop_csv         = len(df_pop_check)
     n_pop_tabla       = df_grid["pop_density_km2"].notna().sum()
@@ -246,7 +235,6 @@ print(f"WorldPop: {len(df_pop):,} nodos | pop  media: {df_pop['pop_density_km2']
 
 # COMMAND ----------
 
-# Partir de la grilla base (con topografía), reemplazar subregiones y estáticos
 cols_base = [c for c in df_grid.columns
              if c not in ["subregion_id", "subregion_name", "dist_road_km", "pop_density_km2"]]
 
@@ -257,7 +245,6 @@ df_final = (
     .merge(df_pop, on="cell_id", how="left")
 )
 
-# Fillnas
 df_final["subregion_id"]    = df_final["subregion_id"].fillna(0).astype(int)
 df_final["subregion_name"]  = df_final["subregion_name"].fillna("Otro")
 df_final["pop_density_km2"] = df_final["pop_density_km2"].fillna(0.0)
@@ -301,7 +288,6 @@ spark.sql(f"""
     ORDER BY subregion_id
 """).show(truncate=False)
 
-# Verificar completitud
 nulos = spark.sql(f"""
     SELECT
         COUNT(*) FILTER (WHERE subregion_id = 0) AS sin_subregion,

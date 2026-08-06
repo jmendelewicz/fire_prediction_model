@@ -50,7 +50,7 @@ df_bronze = spark.read.table(TABLE_BRONZE)
 df_grid   = spark.read.table(TABLE_GRID).select(
     "cell_id", "subregion_id", "subregion_name",
     "elevation", "slope", "aspect",
-    "dist_road_km", "pop_density_km2"   # features estáticas incorporadas a la grilla
+    "dist_road_km", "pop_density_km2"
 )
 
 logger.info(f"Bronze ERA5: {df_bronze.count():,} registros")
@@ -65,7 +65,6 @@ logger.info(f"Grilla:      {df_grid.count():,} nodos")
 df_silver = (
     df_bronze
 
-    # A. Cast de tipos
     .withColumn("temperature_2m",         col("temperature_2m").cast(DoubleType()))
     .withColumn("relative_humidity",      col("relative_humidity").cast(DoubleType()))
     .withColumn("precipitation",          col("precipitation").cast(DoubleType()))
@@ -76,22 +75,15 @@ df_silver = (
     .withColumn("soil_moisture_0_7cm",    col("soil_moisture_0_7cm").cast(DoubleType()))
     .withColumn("soil_moisture_28_100cm", col("soil_moisture_28_100cm").cast(DoubleType()))
 
-    # B. Clip de valores físicamente imposibles
-    # Precipitación: GEE puede generar -0.00 por aritmética flotante
     .withColumn("precipitation",     greatest(col("precipitation"),    lit(0.0)))
-    # Humedad relativa: debe estar en [0, 100]
     .withColumn("relative_humidity", least(greatest(col("relative_humidity"), lit(0.0)), lit(100.0)))
-    # VPD: no puede ser negativo
     .withColumn("vpd_kpa",           greatest(col("vpd_kpa"),          lit(0.0)))
 
-    # C. Fecha para join con FIRMS en Gold
     .withColumn("fecha_join", to_date(col("date")))
 
-    # D. Drop columnas de ingesta
     .drop("source_filename", "ingestion_timestamp", "_rescued_data")
 )
 
-# E. Join con grilla para subregion y topografía
 df_silver = df_silver.join(df_grid, on="cell_id", how="left")
 
 logger.info(f"Silver ERA5: {df_silver.count():,} registros")
@@ -103,11 +95,9 @@ logger.info(f"Silver ERA5: {df_silver.count():,} registros")
 # COMMAND ----------
 
 df_silver = df_silver.select(
-    # Claves
     col("cell_id"),
     col("date"),
     col("fecha_join"),
-    # Variables climáticas
     col("temperature_2m"),
     col("relative_humidity"),
     col("precipitation"),
@@ -117,16 +107,17 @@ df_silver = df_silver.select(
     col("solar_radiation"),
     col("soil_moisture_0_7cm"),
     col("soil_moisture_28_100cm"),
-    # Subregión y topografía desde aux_grid_pampa
     col("subregion_id"),
     col("subregion_name"),
     col("elevation"),
     col("slope"),
     col("aspect"),
-    # Features estáticas de infraestructura/población (desde aux_grid_pampa)
     col("dist_road_km"),
     col("pop_density_km2"),
 )
+
+from pyspark.sql.functions import current_timestamp
+df_silver = df_silver.withColumn("_processed_at", current_timestamp())
 
 # COMMAND ----------
 
@@ -157,7 +148,7 @@ import pyspark.sql.functions as F
 df_check  = spark.read.table(TABLE_SILVER)
 total     = df_check.count()
 N_NODOS   = 2266
-ESPERADO  = N_NODOS * (365 + 365 + 366)   # 2022 + 2023 + 2024 (bisiesto)
+ESPERADO  = N_NODOS * (365 + 365 + 366)
 
 print(f"Registros:  {total:,}  (esperado: {ESPERADO:,}, diff: {total - ESPERADO:+,})")
 print(f"Nodos únicos: {df_check.select('cell_id').distinct().count():,} / {N_NODOS}")

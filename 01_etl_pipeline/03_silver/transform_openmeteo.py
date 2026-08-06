@@ -35,7 +35,6 @@ logger = logging.getLogger("SILVER_OPENMETEO")
 
 # COMMAND ----------
 
-# Fix A-5 (2026-05-16): path relativo.
 # MAGIC %run ../../00_setup/00_common_functions/fwi_calculator
 
 # COMMAND ----------
@@ -53,10 +52,8 @@ TABLE_NDVI     = f"{CATALOG}.02_silver.silver_ndvi"
 TABLE_LC       = f"{CATALOG}.02_silver.silver_land_cover"
 TABLE_OUTPUT   = f"{CATALOG}.02_silver.silver_openmeteo"
 
-# Fecha de corte: hoy es el primer día de forecast
 FECHA_CORTE = pd.Timestamp.now().normalize().strftime("%Y-%m-%d")
 
-# Valores iniciales FWI - Van Wagner (1987)
 FFMC_INIT = 85.0
 DMC_INIT  = 6.0
 DC_INIT   = 15.0
@@ -69,22 +66,28 @@ DC_INIT   = 15.0
 
 logger.info(f"Fecha de corte: {FECHA_CORTE} (días anteriores = histórico, >= = forecast)")
 
-# Seed histórico: 35 días anteriores a hoy
 df_seed = (
     spark.read.table(TABLE_SEED)
     .filter(F.col("date") < FECHA_CORTE)
     .withColumn("is_forecast", F.lit(False))
 )
 
-# Forecast: 4 días a partir de hoy (incluye hoy con datos actualizados)
 df_fc = (
     spark.read.table(TABLE_FORECAST)
     .filter(F.col("date") >= FECHA_CORTE)
     .withColumn("is_forecast", F.lit(True))
 )
 
-# Unión: 39 filas por nodo
 df_combined = df_seed.unionByName(df_fc)
+
+df_combined = df_combined.dropDuplicates(["cell_id", "date"])
+
+df_combined = (
+    df_combined
+    .withColumn("precipitation",     F.greatest(F.col("precipitation"), F.lit(0.0)))
+    .withColumn("relative_humidity", F.least(F.greatest(F.col("relative_humidity"), F.lit(0.0)), F.lit(100.0)))
+    .withColumn("vpd_kpa",           F.greatest(F.col("vpd_kpa"), F.lit(0.0)))
+)
 
 logger.info(f"Seed: {df_seed.count():,} filas | Forecast: {df_fc.count():,} filas")
 
@@ -112,7 +115,6 @@ df_combined = df_combined.join(df_grid, on="cell_id", how="left")
 
 # COMMAND ----------
 
-# Tomar el último NDVI disponible por nodo (el ndvi_silver ya tiene forward-fill)
 df_ndvi_last = (
     spark.read.table(TABLE_NDVI)
     .filter(F.col("fecha") <= F.lit(FECHA_CORTE))
@@ -154,7 +156,6 @@ df_pd = df_pd.sort_values(["cell_id", "date"]).reset_index(drop=True)
 
 logger.info(f"Pandas: {len(df_pd):,} filas, {df_pd['cell_id'].nunique():,} nodos")
 
-# Calcular FWI usando el módulo fwi_calculator (definido como %run arriba)
 nodos      = df_pd["cell_id"].unique()
 resultados = []
 
@@ -205,6 +206,27 @@ COLS_SILVER = [
 ]
 
 df_out = df_fwi[[c for c in COLS_SILVER if c in df_fwi.columns]].copy()
+
+n_nodos_grid = df_grid.count()
+assert len(df_out) > 0, "silver_openmeteo vacío — revisar bronze seed/forecast"
+assert df_out["cell_id"].nunique() == n_nodos_grid, (
+    f"Nodos incompletos: {df_out['cell_id'].nunique()} vs {n_nodos_grid} en grilla"
+)
+assert not df_out.duplicated(["cell_id", "date"]).any(), "Duplicados (cell_id, date)"
+assert df_out["relative_humidity"].between(0, 100).all(), "RH fuera de [0, 100]"
+assert (df_out["precipitation"] >= 0).all(), "Precipitación negativa"
+assert df_out["temperature_2m"].between(-40, 55).all(), "Temperatura fuera de rango físico"
+assert df_out[["ffmc", "dmc", "isi", "bui", "fwi"]].notnull().all().all(), "FWI con nulos"
+assert df_out["is_forecast"].any(), "Sin filas de forecast — revisar bronze_openmeteo_forecast"
+n_dias_hist = df_out.loc[~df_out["is_forecast"], "date"].nunique()
+assert n_dias_hist >= 20, (
+    f"Solo {n_dias_hist} días de histórico en el seed (se esperan ~35). "
+    "Revisar etl_extract_openmeteo_seed / bronze_openmeteo_seed."
+)
+logger.info(f"Data contract OK: nodos completos, rangos físicos, FWI sin nulos, "
+            f"{n_dias_hist} días de histórico.")
+
+df_out["_processed_at"] = pd.Timestamp.utcnow().tz_localize(None)
 
 sdf = spark.createDataFrame(df_out)
 

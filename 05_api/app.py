@@ -1,37 +1,3 @@
-"""
-AlertaFuego — Predictions API
-================================================================================
-Serves the daily fire-risk predictions produced by the Databricks inference job
-(`cloud_inference_engine.py` → `predictions_ui.json` in a Unity Catalog Volume)
-to the frontend.
-
-Data flow (no local computation):
-    Databricks job → /Volumes/.../outputs/predictions_ui.json
-        → this API downloads it via the Databricks SDK (same ~/.databrickscfg auth)
-        → caches it locally → serves it to the frontend over HTTP (CORS enabled).
-
-The API never runs the model. It only relays the precomputed, calibrated
-predictions. `risk_level` in the payload is a CALIBRATED probability (0-100),
-post-fix R1.
-
-Endpoints
-    GET  /                     service info
-    GET  /health               liveness + whether predictions are loaded
-    GET  /predictions          full payload (all nodes)
-    GET  /predictions/meta     metadata only (no nodes) — cheap
-    GET  /predictions/{cell}   single cell
-    POST /refresh              re-download from the Databricks Volume
-
-Run locally:
-    pip install -r 05_api/requirements.txt
-    uvicorn app:app --reload --port 8000        # from inside 05_api/
-
-Config via env vars (all optional, sane defaults):
-    DATABRICKS_VOLUME_PATH   /Volumes/fire_risk_project/03_gold/outputs/predictions_ui.json
-    PREDICTIONS_CACHE        ./predictions_ui.cache.json
-    ALLOWED_ORIGINS          comma-separated; default "*"
-    AUTO_REFRESH_ON_START    "1" to pull from Databricks at startup (default "1")
-"""
 
 import json
 import os
@@ -58,33 +24,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory state
 _state = {"payload": None, "source": None, "loaded_at": None}
 
-
 def _download_from_databricks() -> dict:
-    """Pull predictions_ui.json from the Unity Catalog Volume via the SDK.
-
-    Uses ~/.databrickscfg (DEFAULT profile) or DATABRICKS_HOST/TOKEN env vars.
-    Raises on any failure so the caller can fall back to cache.
-    """
-    from databricks.sdk import WorkspaceClient  # imported lazily
+    from databricks.sdk import WorkspaceClient
 
     w = WorkspaceClient()
     resp = w.files.download(VOLUME_PATH)
     raw = resp.contents.read()
     return json.loads(raw)
 
-
 def _load(refresh: bool) -> dict:
-    """Load predictions: try Databricks (if refresh), else local cache."""
     if refresh:
         try:
             payload = _download_from_databricks()
             CACHE_PATH.write_text(json.dumps(payload), encoding="utf-8")
             _state.update(payload=payload, source="databricks", loaded_at=time.time())
             return payload
-        except Exception as e:  # noqa: BLE001 — fall back to cache, report later
+        except Exception as e:
             _state["last_error"] = f"{type(e).__name__}: {e}"
 
     if CACHE_PATH.exists():
@@ -95,11 +52,9 @@ def _load(refresh: bool) -> dict:
     _state.update(payload=None, source=None, loaded_at=None)
     return None
 
-
 @app.on_event("startup")
 def _startup():
     _load(refresh=AUTO_REFRESH)
-
 
 @app.get("/")
 def root():
@@ -110,7 +65,6 @@ def root():
         "endpoints": ["/health", "/predictions", "/predictions/meta",
                       "/predictions/{cell_id}", "/refresh (POST)"],
     }
-
 
 @app.get("/health")
 def health():
@@ -125,7 +79,6 @@ def health():
         "last_error": _state.get("last_error"),
     }
 
-
 @app.get("/predictions")
 def predictions():
     p = _state["payload"]
@@ -134,14 +87,12 @@ def predictions():
                                  "Databricks has produced predictions_ui.json.")
     return p
 
-
 @app.get("/predictions/meta")
 def predictions_meta():
     p = _state["payload"]
     if not p:
         raise HTTPException(503, "No predictions loaded.")
     return {k: v for k, v in p.items() if k != "nodes"}
-
 
 @app.get("/predictions/{cell_id}")
 def prediction_cell(cell_id: str):
@@ -152,7 +103,6 @@ def prediction_cell(cell_id: str):
         if node["cell_id"] == cell_id:
             return node
     raise HTTPException(404, f"cell_id {cell_id} not found")
-
 
 @app.post("/refresh")
 def refresh():

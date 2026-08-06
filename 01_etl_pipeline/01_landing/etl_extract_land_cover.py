@@ -21,7 +21,6 @@
 
 # COMMAND ----------
 
-# Fix A-5 (2026-05-16): path relativo.
 # MAGIC %run ../../00_setup/00_common_functions/gee_helpers
 
 # COMMAND ----------
@@ -34,16 +33,15 @@ import os
 import time
 from datetime import datetime
 
-GEE_PROJECT = "fire-risk-project-19-04"   ###
+GEE_PROJECT = "fire-risk-project-19-04"
 
 TABLE_GRID  = "fire_risk_project.00_landing.aux_grid_pampa"
 PATH_LC     = "/Volumes/fire_risk_project/00_landing/modis_static"
 FILENAME    = "land_cover_2022_2024.csv"
 
-# Rango de años a extraer
 YEAR_START  = 2022
-YEAR_END    = 2024    # Ajustar cuando MCD12Q1 libere 2025
-SCALE_LC    = 500     # MCD12Q1 es 500m nativo
+YEAR_END    = 2024
+SCALE_LC    = 500
 
 LAT_MIN, LAT_MAX = -42.0, -28.0
 LON_MIN, LON_MAX = -68.0, -56.0
@@ -79,7 +77,7 @@ else:
 
 # COMMAND ----------
 
-inicializar_gee(GEE_PROJECT)   # ← gee_helpers
+inicializar_gee(GEE_PROJECT)
 
 df_grid = (
     spark.table(TABLE_GRID)
@@ -89,7 +87,7 @@ df_grid = (
 )
 
 REGION    = ee.Geometry.Rectangle([LON_MIN, LAT_MIN, LON_MAX, LAT_MAX])
-fc_puntos = build_fc_puntos(df_grid)   # ← gee_helpers
+fc_puntos = build_fc_puntos(df_grid)
 
 print(f"Nodos: {len(df_grid):,}")
 
@@ -99,27 +97,25 @@ print(f"Nodos: {len(df_grid):,}")
 
 # COMMAND ----------
 
-# Mapeo IGBP → categoría simplificada
-# IGBP classes: https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q1
 IGBP_MAP = {
-    1: 2,  # Evergreen Needleleaf Forests → Vegetación Natural
-    2: 2,  # Evergreen Broadleaf Forests
-    3: 2,  # Deciduous Needleleaf Forests
-    4: 2,  # Deciduous Broadleaf Forests
-    5: 2,  # Mixed Forests
-    6: 2,  # Closed Shrublands
-    7: 2,  # Open Shrublands
-    8: 2,  # Woody Savannas
-    9: 2,  # Savannas
-    10: 2, # Grasslands
-    11: 2, # Permanent Wetlands
-    12: 1, # Croplands → Cultivo
-    13: 0, # Urban and Built-Up Lands → Otro
-    14: 1, # Cropland/Natural Vegetation Mosaics → Cultivo
-    15: 0, # Permanent Snow and Ice → Otro
-    16: 0, # Barren → Otro
-    17: 0, # Water Bodies → Otro
-    0: 0,  # Unclassified → Otro
+    1: 2,
+    2: 2,
+    3: 2,
+    4: 2,
+    5: 2,
+    6: 2,
+    7: 2,
+    8: 2,
+    9: 2,
+    10: 2,
+    11: 2,
+    12: 1,
+    13: 0,
+    14: 1,
+    15: 0,
+    16: 0,
+    17: 0,
+    0: 0,
 }
 
 dfs_lc = []
@@ -127,18 +123,17 @@ dfs_lc = []
 for year in range(YEAR_START, YEAR_END + 1):
     print(f"\n--- Año {year} ---")
     try:
-        # MCD12Q1: un producto por año, fecha = enero del año
         img = (
             ee.ImageCollection("MODIS/061/MCD12Q1")
             .filterDate(f"{year}-01-01", f"{year}-12-31")
             .filterBounds(REGION)
             .first()
-            .select(["LC_Type1"])  # IGBP classification
+            .select(["LC_Type1"])
         )
 
         sampled = img.reduceRegions(
             collection=fc_puntos,
-            reducer=ee.Reducer.mode(),  # moda del píxel (500m → punto)
+            reducer=ee.Reducer.mode(),
             scale=SCALE_LC,
             tileScale=4
         )
@@ -154,7 +149,6 @@ for year in range(YEAR_START, YEAR_END + 1):
         ]
 
         df_year = pd.DataFrame(rows)
-        # Mapear IGBP → categoría simplificada
         df_year["land_cover_cat"] = df_year["land_cover_type"].map(IGBP_MAP).fillna(0).astype(int)
 
         dfs_lc.append(df_year)
@@ -172,7 +166,6 @@ for year in range(YEAR_START, YEAR_END + 1):
 
 df_lc = pd.concat(dfs_lc, ignore_index=True)
 
-# Verificación
 print(f"\nTotal: {len(df_lc):,} filas")
 print(f"Años:  {sorted(df_lc['year'].unique())}")
 print(f"Nodos: {df_lc['cell_id'].nunique():,}")
@@ -180,7 +173,7 @@ print(f"\nDistribución por año y categoría:")
 print(df_lc.groupby(["year", "land_cover_cat"]).size().unstack(fill_value=0))
 
 os.makedirs(PATH_LC, exist_ok=True)
-guardar_en_volume(df_lc, PATH_LC, FILENAME)   # ← gee_helpers
+guardar_en_volume(df_lc, PATH_LC, FILENAME)
 
 print(f"\nGuardado: {full_path}")
 dbutils.notebook.exit(f"OK: {FILENAME} — {len(df_lc):,} filas, años {YEAR_START}-{YEAR_END}")

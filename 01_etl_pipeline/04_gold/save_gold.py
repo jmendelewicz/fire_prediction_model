@@ -80,13 +80,11 @@ logger.info(f"Checkpoint: {df.count():,} filas, {len(df.columns)} columnas")
 
 # COMMAND ----------
 
-# Window por nodo, ordenado por fecha
 w = (
     Window.partitionBy("cell_id")
     .orderBy(F.unix_date(F.col("fecha_join")))
 )
 
-# Calendario agrícola
 df = df.withColumn(
     "calendario_agricola",
     F.when(
@@ -96,9 +94,6 @@ df = df.withColumn(
     ).otherwise(F.lit(0)).cast(IntegerType())
 )
 
-# SPI-90d — índice de precipitación estandarizado (90 días)
-# No es el SPI estándar (requiere 30 años climatología) pero captura
-# anomalías relativas de sequía/humedad dentro del período disponible.
 w_spi = w.rowsBetween(-89, 0)
 df = (
     df
@@ -113,7 +108,6 @@ df = (
     .drop("_p_mean", "_p_std")
 )
 
-# Rolling means
 df = (
     df
     .withColumn("fwi_roll14",
@@ -136,14 +130,12 @@ logger.info("Features de ventana calculadas.")
 
 GRID_RES = 0.25
 
-# Parsear lat/lon desde cell_id
 df = (
     df
     .withColumn("_lat", F.split("cell_id", "_").getItem(0).cast("double"))
     .withColumn("_lon", F.split("cell_id", "_").getItem(1).cast("double"))
 )
 
-# Crear tabla de vecinos (self-join por fecha, offset ±0.25°)
 from pyspark.sql.functions import abs as spark_abs
 
 df_neighbors = (
@@ -174,7 +166,6 @@ df_neighbors = (
 
 df = df.join(df_neighbors, on=["cell_id", "fecha_join"], how="left")
 
-# Fire in neighbors last 3 days
 w_fire = Window.partitionBy("cell_id").orderBy(F.unix_date(F.col("fecha_join"))).rowsBetween(-3, 0)
 df = df.withColumn(
     "fire_vecinos_3d",
@@ -184,7 +175,6 @@ df = df.withColumn(
     ).otherwise(F.lit(0)).cast(IntegerType())
 )
 
-# Fill NaN for border cells
 df = df.fillna({"fwi_vecinos_mean": 0.0, "fwi_vecinos_max": 0.0})
 df = df.drop("_lat", "_lon")
 
@@ -196,7 +186,6 @@ logger.info("Features espaciales de vecindad calculadas.")
 
 # COMMAND ----------
 
-# Verificar que todas las columnas existen
 missing = [c for c in FINAL_COLS if c not in df.columns]
 if missing:
     raise ValueError(f"Columnas faltantes: {missing}")
@@ -206,7 +195,6 @@ df_final = df.select(FINAL_COLS).orderBy("cell_id", "fecha_join")
 total = df_final.count()
 logger.info(f"Dataset final: {total:,} filas × {len(FINAL_COLS)} columnas")
 
-# Verificar nulos
 null_exprs = [
     F.count(F.when(F.col(c).isNull(), c)).alias(c)
     for c in FINAL_COLS if c not in ["cell_id", "fecha_join"]

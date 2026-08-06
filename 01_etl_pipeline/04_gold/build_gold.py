@@ -30,10 +30,6 @@ logger = logging.getLogger("GOLD_P1")
 
 # COMMAND ----------
 
-# Fix A-5 (2026-05-16): path relativo. El script igualmente redefine
-# las funciones FWI inline más abajo, por lo cual este %run es informativo
-# (carga el módulo si está disponible, las definiciones inline tienen
-# precedencia y son las que se usan para producir gold_checkpoint.csv).
 # MAGIC %run ../../00_setup/00_common_functions/fwi_calculator
 
 # COMMAND ----------
@@ -44,17 +40,14 @@ logger = logging.getLogger("GOLD_P1")
 
 TABLE_ERA5   = "fire_risk_project.02_silver.silver_era5"
 TABLE_NASA   = "fire_risk_project.02_silver.silver_nasa_firms"
-TABLE_NDVI   = "fire_risk_project.02_silver.ndvi_silver"
-TABLE_LC     = "fire_risk_project.02_silver.land_cover_silver"
-# Nota: static_features_silver fue eliminada.
-# dist_road_km y pop_density_km2 ahora se propagan desde aux_grid_pampa vía silver_era5.
+TABLE_NDVI   = "fire_risk_project.02_silver.silver_ndvi"
+TABLE_LC     = "fire_risk_project.02_silver.silver_land_cover"
 
 PATH_CHECKPOINT = "/Volumes/fire_risk_project/03_gold/training_dataset_v2/gold_checkpoint.csv"
 
 DATE_START = "2022-01-01"
 DATE_END   = "2024-12-31"
 
-# Valores iniciales FWI - Van Wagner (1987)
 FFMC_INIT = 85.0
 DMC_INIT  = 6.0
 DC_INIT   = 15.0
@@ -65,7 +58,6 @@ DC_INIT   = 15.0
 
 # COMMAND ----------
 
-# ERA5 base - clima + topo + subregion + features estáticas
 df_era5 = (
     spark.read.table(TABLE_ERA5)
     .filter(F.col("fecha_join").between(DATE_START, DATE_END))
@@ -75,27 +67,24 @@ df_era5 = (
         "wind_speed_10m", "vpd_kpa", "solar_radiation",
         "soil_moisture_0_7cm", "soil_moisture_28_100cm",
         "subregion_id", "elevation", "slope", "aspect",
-        "dist_road_km", "pop_density_km2",   # desde aux_grid_pampa vía silver_era5
+        "dist_road_km", "pop_density_km2",
     )
 )
 
-# Target: fire_occurred por (cell_id, fecha)
 df_fire = (
     spark.read.table(TABLE_NASA)
     .filter(F.col("fecha_join").between(DATE_START, DATE_END))
-    .filter(F.col("type") == 0)   # solo vegetación
+    .filter(F.col("type") == 0)
     .groupBy("cell_id", "fecha_join")
     .agg(F.lit(1).alias("fire_occurred"))
 )
 
-# NDVI diario 
 df_ndvi = (
     spark.read.table(TABLE_NDVI)
     .withColumnRenamed("fecha", "fecha_join")
     .select("cell_id", "fecha_join", "ndvi")
 )
 
-# Land Cover anual
 df_lc = (
     spark.read.table(TABLE_LC)
     .select("cell_id", "year", "land_cover_cat")
@@ -112,12 +101,9 @@ logger.info(f"Fire:    {df_fire.count():,} eventos")
 
 df = (
     df_era5
-    # Target
     .join(df_fire, on=["cell_id", "fecha_join"], how="left")
     .withColumn("fire_occurred", F.coalesce(F.col("fire_occurred"), F.lit(0)))
-    # NDVI diario
     .join(df_ndvi, on=["cell_id", "fecha_join"], how="left")
-    # Land Cover por año
     .withColumn("year", F.year("fecha_join"))
     .join(df_lc, on=["cell_id", "year"], how="left")
     .fillna({"land_cover_cat": 0, "pop_density_km2": 0.0})
@@ -148,11 +134,6 @@ logger.info(f"Pandas: {len(df_pd):,} filas, {df_pd['cell_id'].nunique():,} nodos
 # COMMAND ----------
 
 def calcular_ffmc(temp, rh, wind, rain, ffmc_prev):
-    """
-    Fine Fuel Moisture Code — humedad de combustibles finos (hojas, pasto seco).
-    Responde rápido a cambios meteorológicos (horas).
-    Inputs: temp (°C), rh (%), wind (km/h), rain (mm/24h), ffmc_prev
-    """
     mo = 147.2 * (101 - ffmc_prev) / (59.5 + ffmc_prev)
     if rain > 0.5:
         rf = rain - 0.5
@@ -176,20 +157,7 @@ def calcular_ffmc(temp, rh, wind, rain, ffmc_prev):
         m = mo
     return max(0.0, min(101.0, 59.5 * (250 - m) / (147.2 + m)))
 
-
 def calcular_dmc(temp, rh, rain, dmc_prev, mes):
-    """
-    Duff Moisture Code — humedad de capas orgánicas (5-10 cm). Responde en días.
-    Tabla Le (Effective Day Length) ajustada para Hemisferio Sur (~35°S, Pampa).
-    Fuente: Lawson & Armitage (2008), Weather Guide for the Canadian Forest
-    Fire Danger Rating System (Tabla 3.4 desplazada 6 meses).
-
-    Fix C-8: el código anterior usaba la tabla Lf (de DC) para DMC.
-    Lf toma valores negativos en invierno → DMC colapsaba a 0.001 todo el
-    invierno austral, inconsistente con el modelo de Van Wagner. Le es
-    siempre positivo (correcto físicamente: la materia orgánica siempre
-    tiene algo de drying, sólo varía la magnitud).
-    """
     if rain > 1.5:
         re = 0.92 * rain - 1.27
         mo = 20 + np.exp(5.6348 - dmc_prev / 43.43)
@@ -202,72 +170,46 @@ def calcular_dmc(temp, rh, rain, dmc_prev, mes):
         mr       = mo + 1000 * re / (48.77 + b * re)
         pr       = 244.72 - 43.43 * np.log(mr - 20)
         dmc_prev = max(pr, 0)
-    # Le (Effective Day Length) — Hemisferio Sur ~35°S (NH shift 6 meses).
     Le = [13.9, 12.4, 10.9, 9.4, 8.0, 7.0, 6.0, 6.5, 7.5, 9.0, 12.8, 13.9]
-    #     ene   feb   mar   abr  may  jun  jul  ago  sep  oct  nov   dic
     if temp < -1.1:
         return max(dmc_prev, 0.001)
     k = 1.894 * (temp + 1.1) * (100 - rh) * Le[mes - 1] * 1e-6
     return max(0.001, dmc_prev + 100 * k)
 
-
 def calcular_dc(temp, rain, dc_prev, mes):
-    """
-    Drought Code — humedad profunda del suelo (>20 cm).
-    Responde en semanas/meses. Indicador de sequía prolongada.
-    Tabla LF ajustada para Hemisferio Sur (~35°S, Pampa).
-    Fuente: Van Wagner (1987) tabla original NH desplazada 6 meses.
-    """
     if rain > 2.8:
         rd      = 0.83 * rain - 1.27
         qo      = 800 * np.exp(-dc_prev / 400)
         qr      = max(qo + 3.937 * rd, 0.001)
         dr      = 400 * np.log(800 / qr)
         dc_prev = max(dr, 0)
-    # Hemisferio Sur ~35°S: valores positivos en verano austral (dic-ene-feb)
     LF = [6.4, 5.0, 2.4, 0.4, -1.6, -1.6, -1.6, -1.6, -1.1, 0.9, 3.8, 5.8]
-    #      ene  feb  mar  abr   may   jun   jul   ago   sep  oct  nov  dic
     if temp < -2.8:
         return max(dc_prev, 0.001)
     v = max(0.36 * (temp + 2.8) + LF[mes - 1], 0)
     return max(0.001, dc_prev + 0.5 * v)
 
-
 def calcular_isi(wind, ffmc):
-    """Initial Spread Index — velocidad potencial de propagación."""
     fm = 147.2 * (101 - ffmc) / (59.5 + ffmc)
     ff = 19.115 * np.exp(-0.1386 * fm) * (1 + fm**5.31 / 4.93e7)
     return 0.208 * ff * np.exp(0.05039 * wind)
 
-
 def calcular_bui(dmc, dc):
-    """Buildup Index — total de combustible disponible."""
     denom = dmc + 0.4 * dc
     if denom == 0:
         return 0.0
     if dmc <= 0.4 * dc:
-        return 0.8 * dmc * dc / denom
-    return dmc - (1 - 0.8 * dc / denom) * (0.92 + (0.0114 * dmc)**1.7)
-
+        bui = 0.8 * dmc * dc / denom
+    else:
+        bui = dmc - (1 - 0.8 * dc / denom) * (0.92 + (0.0114 * dmc)**1.7)
+    return max(0.0, bui)
 
 def calcular_fwi(isi, bui):
-    """Fire Weather Index — intensidad potencial del incendio."""
     fd = 0.626 * bui**0.809 + 2 if bui <= 80 else 1000 / (25 + 108.64 * np.exp(-0.023 * bui))
     b  = 0.1 * isi * fd
     return np.exp(2.72 * (0.434 * np.log(b))**0.647) if b > 1 else b
 
-
 def calcular_fwi_serie(df_nodo: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calcula la serie temporal completa de FWI para un nodo.
-    El cálculo es secuencial — cada día depende del estado del día anterior.
-
-    Args:
-        df_nodo: DataFrame ordenado por fecha para un único cell_id
-
-    Returns:
-        DataFrame con columnas ffmc, dmc, isi, bui, fwi agregadas
-    """
     n             = len(df_nodo)
     ffmc_arr      = np.full(n, np.nan)
     dmc_arr       = np.full(n, np.nan)
@@ -279,7 +221,7 @@ def calcular_fwi_serie(df_nodo: pd.DataFrame) -> pd.DataFrame:
     dc_prev       = DC_INIT
 
     for i, row in enumerate(df_nodo.itertuples()):
-        wind_kmh  = row.wind_speed_10m * 3.6   # ERA5 en m/s → FWI usa km/h
+        wind_kmh  = row.wind_speed_10m * 3.6
         ffmc_i    = calcular_ffmc(row.temperature_2m, row.relative_humidity,
                                   wind_kmh, row.precipitation, ffmc_prev)
         dmc_i     = calcular_dmc(row.temperature_2m, row.relative_humidity,
@@ -335,13 +277,11 @@ logger.info(f"FWI calculado: {len(df_fwi):,} filas")
 
 # COMMAND ----------
 
-# Codificación circular — captura periodicidad sin discontinuidad dic/ene
 df_fwi["mes_sin"]  = np.sin(2 * np.pi * df_fwi["mes"] / 12)
 df_fwi["mes_cos"]  = np.cos(2 * np.pi * df_fwi["mes"] / 12)
 df_fwi["dia_sin"]  = np.sin(2 * np.pi * df_fwi["dia_anio"] / 365)
 df_fwi["dia_cos"]  = np.cos(2 * np.pi * df_fwi["dia_anio"] / 365)
 
-# Días consecutivos sin lluvia — < 0.1mm = día seco
 def dias_sin_lluvia(serie: pd.Series) -> pd.Series:
     resultado, contador = [], 0
     for v in serie:
@@ -362,7 +302,6 @@ logger.info("Estacionalidad y días secos calculados.")
 
 # COMMAND ----------
 
-# Guardar antes de cualquier operación Spark — protege el trabajo si la sesión expira
 COLS_CHECKPOINT = [
     "cell_id", "fecha_join", "fire_occurred",
     "subregion_id", "elevation", "slope", "aspect",

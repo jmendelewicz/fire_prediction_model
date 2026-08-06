@@ -1,24 +1,3 @@
-"""
-Model V4: Probability Recalibration (fix R1)
-================================================================================
-The canonical model is trained on 1:1 balanced data while reality is ~3% fire,
-so its raw probabilities are massively inflated (test ECE ~0.28). The dashboard
-and API expose these as `risk_level`, so they must be calibrated to mean an
-actual probability.
-
-This is ADDITIVE: it does NOT retrain or modify xgboost_v4.json. It fits a
-post-hoc calibrator on the VALIDATION slice (test stays held out) and persists
-it so inference can map raw_score -> calibrated_probability.
-
-Fits both isotonic and Platt (sigmoid), selects by validation ECE, reports the
-honest test ECE before/after, and persists:
-    calibrator_v4.pkl          (the selected calibrator + metadata)
-    calibration_compare_v4.csv (isotonic vs sigmoid, val + test ECE)
-    calibration_v4_after.png   (reliability curve before/after)
-
-Usage:
-    PYTHONIOENCODING=utf-8 PYTHONUTF8=1 python 02_ml_model/model_v4/calibrate_v4.py
-"""
 
 import json, pickle, warnings
 import numpy as np
@@ -45,7 +24,6 @@ OUT_DIR.mkdir(exist_ok=True)
 RS = t4.RANDOM_STATE
 CAT_COLS = ["subregion_id", "land_cover_cat"]
 
-
 def _prep(df, cols):
     X = df[cols].copy()
     for c in CAT_COLS:
@@ -53,9 +31,7 @@ def _prep(df, cols):
             X[c] = X[c].astype("category")
     return X, df[t4.TARGET].values.astype(np.int32)
 
-
 def ece(y, p, n_bins=10):
-    """Expected Calibration Error with equal-count (quantile) bins."""
     bins = pd.qcut(p, q=n_bins, duplicates="drop")
     e = 0.0
     for b in bins.categories:
@@ -65,13 +41,11 @@ def ece(y, p, n_bins=10):
         e += (m.sum() / len(y)) * abs(y[m].mean() - p[m].mean())
     return float(e)
 
-
 def main():
     print("=" * 70)
     print("   Model V4 — Probability Recalibration (R1)")
     print("=" * 70)
 
-    # Reproduce splits (deterministic) and raw scores
     df = t4.load_data()
     train_mask = df["fecha_join"] < pd.Timestamp(t4.TEMPORAL_SPLIT_DATE)
     df = t4.add_features(df, train_mask)
@@ -90,13 +64,11 @@ def main():
     ece_test_raw = ece(y_test, raw_test)
     print(f"\n   Raw ECE   — val {ece_val_raw:.4f}   test {ece_test_raw:.4f}")
 
-    # ── Fit calibrators on VAL (test stays held out) ────────────────────────
     iso = IsotonicRegression(out_of_bounds="clip")
     iso.fit(raw_val, y_val)
     iso_val  = iso.predict(raw_val)
     iso_test = iso.predict(raw_test)
 
-    # Platt: logistic on the logit of the raw score
     eps = 1e-6
     logit = lambda p: np.log(np.clip(p, eps, 1 - eps) / (1 - np.clip(p, eps, 1 - eps)))
     platt = LogisticRegression(C=1e6, solver="lbfgs")
@@ -112,7 +84,7 @@ def main():
             "calibrator": name,
             "ece_val":  ece(y_val, pv),
             "ece_test": ece(y_test, pt),
-            "auc_test": roc_auc_score(y_test, pt),   # rank-preserving → unchanged
+            "auc_test": roc_auc_score(y_test, pt),
             "ap_test":  average_precision_score(y_test, pt),
         })
     comp = pd.DataFrame(rows)
@@ -122,12 +94,6 @@ def main():
         print(f"     {r.calibrator:<9}  ECE val {r.ece_val:.4f}  test {r.ece_test:.4f}"
               f"   AUC {r.auc_test:.4f}  AP {r.ap_test:.4f}")
 
-    # ── Select calibrator (test untouched for selection) ────────────────────
-    # Rule: prefer Platt (parametric → rank-preserving, robust to the val→test
-    # prevalence drift 1%→3%). Only switch to isotonic if it beats Platt on
-    # validation ECE by a meaningful margin (>0.005). Isotonic reaching ECE≈0
-    # on val is an overfitting signal, not real superiority — and it ties ranks,
-    # which silently degrades AP. (Observed: isotonic AP 0.284 vs Platt 0.304.)
     ece_iso_val   = ece(y_val, iso_val)
     ece_platt_val = ece(y_val, platt_val)
     if ece_iso_val < ece_platt_val - 0.005:
@@ -137,7 +103,6 @@ def main():
     print(f"\n   Selected (lowest val ECE): {best_name}  "
           f"→ test ECE {ece_test_raw:.4f} → {ece(y_test, best_test):.4f}")
 
-    # Recompute operating thresholds on CALIBRATED test probabilities
     pr, rc, th = precision_recall_curve(y_test, best_test)
     f1 = 2 * pr * rc / (pr + rc + 1e-8)
     f2 = 5 * pr * rc / (4 * pr + rc + 1e-8)
@@ -155,7 +120,6 @@ def main():
     print(f"   Calibrated F2 threshold {t_f2:.3f}  → precision {m_f2['precision']:.3f}"
           f"  recall {m_f2['recall']:.3f}")
 
-    # ── Persist calibrator + metadata ───────────────────────────────────────
     payload = {
         "method": best_name,
         "isotonic": iso if best_name == "isotonic" else None,
@@ -171,8 +135,6 @@ def main():
     with open(SCRIPT_DIR / "calibrator_v4.pkl", "wb") as f:
         pickle.dump(payload, f)
 
-    # Also emit a sklearn-free JSON the serving engine applies manually
-    # (avoids pickle/sklearn version coupling on the Databricks cluster).
     cal_json = {
         "method": best_name,
         "f1_threshold_calibrated": t_f1,
@@ -183,13 +145,12 @@ def main():
     if best_name == "platt":
         cal_json["platt"] = {"a": float(platt.coef_[0][0]), "b": float(platt.intercept_[0])}
         cal_json["formula"] = "calibrated = 1/(1+exp(-(a*logit(raw)+b))), logit(p)=log(p/(1-p))"
-    else:  # isotonic: persist the step-function knots
+    else:
         cal_json["isotonic"] = {"x": iso.X_thresholds_.tolist(),
                                 "y": iso.y_thresholds_.tolist()}
     json.dump(cal_json, open(SCRIPT_DIR / "calibrator_v4.json", "w"), indent=2)
     print(f"\n   Persisted calibrator_v4.pkl + calibrator_v4.json ({best_name})")
 
-    # ── Reliability plot before/after ───────────────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 6))
     ax.plot([0, 1], [0, 1], "k--", alpha=0.4, label="perfect")
     for p, lab, col in [(raw_test, f"raw (ECE {ece_test_raw:.3f})", "#9e9e9e"),
@@ -213,7 +174,6 @@ def main():
     print(f"   Done. ECE {ece_test_raw:.3f} → {ece(y_test, best_test):.3f}  "
           f"({best_name}). Outputs in {OUT_DIR}")
     print("=" * 70)
-
 
 if __name__ == "__main__":
     main()

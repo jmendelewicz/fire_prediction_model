@@ -14,10 +14,11 @@ El modelo canónico es **v4**, entrenado con 42 features sobre 2266 nodos a 0.25
 |---|---|
 | AUC-ROC | 0.8965 |
 | Average Precision | 0.3038 |
+| ECE (calibrado, Platt) | 0.0056 |
 | Precision / Recall @ F2 | 0.218 / 0.634 |
 | Precision / Recall @ F1 | 0.334 / 0.424 |
 
-El threshold operativo recomendado es el F2 (recall-biased, 0.748): el costo de no alertar un fuego es mucho mayor que el de emitir un falso positivo.
+Las probabilidades de serving están **calibradas** (Platt sobre validación; ECE 0.279 → 0.0056 sin alterar AUC/AP). El threshold operativo recomendado es el F2 re-derivado sobre probabilidades calibradas (**0.070**, recall-biased): el costo de no alertar un fuego es mucho mayor que el de emitir un falso positivo.
 
 Para entrenar (después de generar `save_gold.csv` con el pipeline ETL):
 
@@ -50,15 +51,19 @@ fire_prediction_model/
 │   ├── 01_landing/                 # ERA5, MODIS, NASA FIRMS, Open-Meteo
 │   ├── 02_bronze/                  # ingest_datasets.py (Auto Loader)
 │   ├── 03_silver/                  # transform_*.py + audit_silver.py
-│   └── 04_gold/                    # build_gold + save_gold (training)
-│                                   # build_gold_forecast (serving)
+│   └── 04_gold/                    # build_gold + save_gold (training OBT)
+│                                   # build_gold_forecast (serving OBT)
+│                                   # build_gold_star (esquema estrella BI)
 │
 ├── 02_ml_model/                    # Training local
-│   └── model_v4/                   # Modelo canónico + cloud_inference_engine.py
+│   └── model_v4/                   # Modelo canónico + evaluación + calibración
+│                                   # + cloud_inference_engine.py
 │
 ├── 03_orchestration/               # Orquestador diario
 │   └── cloud_orchestration_main.ipynb
 │
+├── 05_api/                         # API FastAPI (opcional, sirve el JSON)
+├── 06_report/                      # Informe final (LaTeX, formato paper)
 ├── references/                     # Paper de referencia + notas previas
 └── requirements.txt
 ```
@@ -114,7 +119,9 @@ python 02_ml_model/model_v4/train_model_v4.py
 
 ### 4. Serving diario
 
-`03_orchestration/cloud_orchestration_main.ipynb` corre los 5 pasos del job de inferencia (extract → ingest → silver_openmeteo → gold_forecast → inferencia v4). Se programa con un Databricks Job (cron 06:00 UTC recomendado).
+Un Databricks Job (cron 06:00 UTC) encadena 7 tasks: extract Open-Meteo (forecast + seed 35d) → ingest bronze → silver_openmeteo (con contratos de datos) → gold_forecast (42 features alineadas al training) → inferencia v4 (calibrada; escribe `fact_prediction` + `predictions_ui.json`) → gold_star (refresca el esquema estrella).
+
+La capa gold combina las OBT de ML con un **esquema estrella** para BI (`dim_cell`, `dim_date`, `dim_model`, `fact_prediction`, `fact_weather_daily`, `fact_fire_detection`, importancias SHAP y baselines), consumido por un dashboard AI/BI nativo de Databricks (mapa de riesgo relativo por percentil + probabilidad absoluta calibrada, meteo/FWI, histórico de focos y página del modelo).
 
 ---
 

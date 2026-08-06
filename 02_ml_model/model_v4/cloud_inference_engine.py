@@ -63,23 +63,16 @@ with open(PATH_FEATS, "rb") as f:
     feature_cols = pickle.load(f)
 print(f"Modelo espera {len(feature_cols)} features.")
 
-# Calibrador (fix R1) — el modelo se entrena con datos balanceados 1:1 mientras
-# la realidad es ~3% de fuego, así que sus probabilidades crudas están infladas
-# (ECE test ~0.28). El calibrador (Platt) las mapea a probabilidades reales
-# (ECE ~0.006) sin alterar el ranking (AUC/AP intactos). Imprescindible para que
-# `risk_level` signifique una probabilidad de verdad en el dashboard/API.
 print(f"Cargando calibrador: {PATH_CALIBRATOR}")
 try:
     with open(PATH_CALIBRATOR, "r") as f:
         calibrator = json.load(f)
     cal_method = calibrator["method"]
-    # El threshold operativo se recalcula sobre las probabilidades CALIBRADAS.
     threshold = float(calibrator["f2_threshold_calibrated"])
     print(f"Calibrador: {cal_method} | threshold F2 calibrado: {threshold:.4f} | "
           f"ECE {calibrator['ece_test_raw']:.3f} → {calibrator['ece_test_calibrated']:.3f}")
 except Exception as e:
     calibrator = None
-    # Fallback: threshold F2 sobre prob cruda (legacy, no calibrado).
     try:
         df_metrics = pd.read_csv(PATH_METRICS, index_col=0)
         threshold  = float(df_metrics.loc["best_f2_threshold", "valor"])
@@ -87,14 +80,7 @@ except Exception as e:
         threshold = 0.5
     print(f"WARNING: sin calibrador ({e}). Usando prob cruda, threshold {threshold:.3f}.")
 
-
 def apply_calibration(raw_prob, calibrator):
-    """
-    Mapea probabilidad cruda → calibrada (fix R1). Aplica Platt manualmente
-    desde los coeficientes en JSON — sin dependencia de la versión de sklearn
-    en el cluster (evita fallos de unpickle en serving).
-        calibrated = sigmoid(a * logit(raw) + b)
-    """
     if calibrator is None or calibrator.get("method") != "platt":
         return raw_prob
     eps = 1e-6
@@ -115,7 +101,6 @@ print(f"Forecast loaded: {len(df_gold):,} filas × {df_gold.shape[1]} columnas")
 print(f"Fechas: {df_gold['date'].min()} → {df_gold['date'].max()}")
 print(f"Nodos:  {df_gold['cell_id'].nunique():,}")
 
-# Verificar alineación schema
 missing = [c for c in feature_cols if c not in df_gold.columns]
 extra   = [c for c in df_gold.columns if c not in feature_cols + ["cell_id", "date"]]
 if missing:
@@ -134,18 +119,26 @@ if extra:
 
 X = df_gold[feature_cols].copy()
 
-# Re-castear categóricas como en el training (train_model_v4.prepare_xy)
-if "subregion_id" in X.columns:
-    X["subregion_id"] = X["subregion_id"].astype("category")
-if "land_cover_cat" in X.columns:
-    X["land_cover_cat"] = X["land_cover_cat"].astype("category")
+for c in ("subregion_id", "land_cover_cat"):
+    if c in X.columns:
+        X[c] = X[c].astype("int64").astype("category")
 
 raw_prob               = clf.predict_proba(X)[:, 1]
 df_gold["risk_prob_raw"] = raw_prob
-df_gold["risk_prob"]   = apply_calibration(raw_prob, calibrator)   # calibrada (R1)
+df_gold["risk_prob"]   = apply_calibration(raw_prob, calibrator)
 df_gold["risk_alert"]  = (df_gold["risk_prob"] >= threshold).astype(int)
-# Nivel de riesgo para visualización (0-100) — sobre la prob CALIBRADA
 df_gold["risk_level"]  = (df_gold["risk_prob"] * 100).round(1)
+
+df_gold["risk_percentile"] = (
+    df_gold.groupby("date")["risk_prob"].rank(pct=True) * 100
+).round(1)
+
+PCT_BINS   = [0, 50, 80, 95, 100]
+PCT_LABELS = ["Bajo", "Moderado", "Alto (relativo)", "Muy alto (relativo)"]
+df_gold["risk_category"] = pd.cut(
+    df_gold["risk_percentile"], bins=PCT_BINS,
+    labels=PCT_LABELS, include_lowest=True
+).astype(str)
 
 print(f"\nDistribución de risk_prob (calibrada):")
 print(df_gold["risk_prob"].describe())
@@ -154,7 +147,56 @@ print(f"\nAlertas (prob calibrada ≥ {threshold:.4f}): {df_gold['risk_alert'].s
 
 # COMMAND ----------
 
-# MAGIC %md ## 4 · Exportar JSON para el frontend
+# MAGIC %md ## 4 · fact_prediction — hecho del esquema estrella (BI)
+# MAGIC
+# MAGIC Grano: celda × fecha de forecast × corrida (`run_date`). Idempotente:
+# MAGIC re-correr el mismo día reemplaza la corrida del día, no duplica.
+# MAGIC El dashboard consume `vw_predictions_latest` (creada por `build_gold_star`).
+
+# COMMAND ----------
+
+TABLE_FACT_PRED = f"{CATALOG}.`03_gold`.fact_prediction"
+
+run_date     = datetime.utcnow().date()
+generated_at = datetime.utcnow()
+
+fact_pred = df_gold[[
+    "cell_id", "date", "risk_prob_raw", "risk_prob", "risk_level",
+    "risk_percentile", "risk_category", "risk_alert",
+]].copy()
+fact_pred = fact_pred.rename(columns={"date": "forecast_date", "risk_alert": "alert_flag"})
+fact_pred["forecast_date"] = pd.to_datetime(fact_pred["forecast_date"]).dt.date
+fact_pred["run_date"]      = run_date
+fact_pred["horizon_days"]  = fact_pred["forecast_date"].map(
+    lambda d: (d - run_date).days + 1
+)
+fact_pred["model_version"] = "v4"
+fact_pred["threshold"]     = float(threshold)
+fact_pred["generated_at"]  = generated_at
+
+for c, nd in [("risk_prob_raw", 6), ("risk_prob", 6),
+              ("risk_level", 1), ("risk_percentile", 1)]:
+    fact_pred[c] = fact_pred[c].astype("float64").round(nd)
+
+sdf_pred = spark.createDataFrame(fact_pred)
+
+if spark.catalog.tableExists(TABLE_FACT_PRED):
+    spark.sql(f"DELETE FROM {TABLE_FACT_PRED} WHERE run_date = DATE('{run_date}')")
+    sdf_pred.write.format("delta").mode("append").saveAsTable(TABLE_FACT_PRED)
+else:
+    sdf_pred.write.format("delta").mode("overwrite").saveAsTable(TABLE_FACT_PRED)
+    spark.sql(
+        f"COMMENT ON TABLE {TABLE_FACT_PRED} IS "
+        "'Hecho: predicciones de riesgo por celda × fecha forecast × corrida. "
+        "risk_prob calibrada (Platt); risk_percentile = ranking relativo del día. "
+        "Escrita por cloud_inference_engine.'"
+    )
+
+print(f"fact_prediction: {len(fact_pred):,} filas (run_date={run_date})")
+
+# COMMAND ----------
+
+# MAGIC %md ## 5 · Exportar JSON para el frontend
 # MAGIC
 # MAGIC Schema:
 # MAGIC ```json
@@ -178,10 +220,6 @@ print(f"\nAlertas (prob calibrada ≥ {threshold:.4f}): {df_gold['risk_alert'].s
 
 # COMMAND ----------
 
-# Detalle clima/FWI por nodo y día para el dashboard (el front lo muestra en
-# NodeDetail). El static (lat/lon/subregión/elevación) lo aporta la grilla en el
-# front (aux_grid_pampa.csv), no se duplica acá. `dc` no es feature del v4
-# (el modelo usa ffmc/dmc/isi/bui/fwi), por eso no se incluye.
 DETAIL = {
     "temp":   "temperature_2m",
     "hum":    "relative_humidity",
@@ -200,7 +238,9 @@ for cell_id, group in df_gold.groupby("cell_id"):
     preds = {}
     for _, row in group.iterrows():
         rec = {
-            "risk_level": float(row["risk_level"]),
+            "risk_level": round(float(row["risk_level"]), 1),
+            "risk_pct":   round(float(row["risk_percentile"]), 1),
+            "risk_cat":   str(row["risk_category"]),
             "alert":      int(row["risk_alert"]),
         }
         for short, col in DETAIL.items():
@@ -219,7 +259,6 @@ output = {
     "nodes":         nodes,
 }
 
-# Asegurar que el directorio existe
 import os
 os.makedirs(os.path.dirname(PATH_OUTPUT), exist_ok=True)
 

@@ -1,52 +1,3 @@
-"""
-Model V4: Rigorous Evaluation Suite (Phase A)
-================================================================================
-Loads the already-trained xgboost_v4.json and reproduces the EXACT temporal
-split (deterministic) to run the evaluation analyses that the bare training
-script does not produce. No SSA re-run; no retraining of the canonical model.
-
-Analyses
---------
-  T1. Horizon / serving-degradation analysis for `fire_vecinos_3d`.
-      The top feature (~73% gain importance) is only available when NASA has
-      already observed the last-3-days fires. For multi-day forecasts (H>=2)
-      it collapses to 0. We quantify the AUC/AP gap between:
-        - full features (hindcast / H=1 quality)
-        - fire_vecinos_3d masked to 0 on the CURRENT model (serving H>=4)
-        - a model RETRAINED without fire_vecinos_3d (honest multi-day ceiling)
-
-  D1. Baselines: prevalence, persistence (self-cell recent fire), FWI-only.
-      Contextualizes whether AP=0.304 is good. Without baselines the number
-      is meaningless.
-
-  D2. Robust importance: SHAP (TreeExplainer) vs gain importance, plus a
-      retrain-based block ablation (spatial / FWI / weather / vegetation /
-      static / seasonality / interactions).
-
-  D3. Probability calibration: reliability curve + Expected Calibration Error
-      (ECE). The operating threshold is chosen on raw scores; if they are
-      miscalibrated, the threshold semantics are off.
-
-  D4. Spatial error analysis: AUC/AP per subregion. Detects hidden geographic
-      bias.
-
-Outputs -> 02_ml_model/model_v4/eval/
-    evaluation_report_v4.json      (machine-readable summary of every analysis)
-    baselines_v4.csv
-    horizon_degradation_v4.csv
-    block_ablation_v4.csv
-    shap_importance_v4.csv
-    calibration_v4.csv
-    spatial_error_v4.csv
-    eval_plots_v4.png
-
-Usage:
-    python 02_ml_model/model_v4/evaluate_v4.py
-
-Reproducibility: prints a sanity check that the reproduced test AUC matches the
-metricas_v4.csv value (0.8965). If it diverges, the split/feature reproduction
-drifted and the rest of the report should not be trusted.
-"""
 
 import os, json, time, warnings
 import numpy as np
@@ -64,7 +15,6 @@ import xgboost as xgb
 
 warnings.filterwarnings("ignore")
 
-# Reuse the EXACT pipeline from training (deterministic split/features).
 import train_model_v4 as t4
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -73,7 +23,6 @@ OUT_DIR.mkdir(exist_ok=True)
 
 RS = t4.RANDOM_STATE
 
-# ── Feature blocks for ablation (every one of the 39 features assigned once) ──
 FEATURE_BLOCKS = {
     "spatial":      ["fire_vecinos_3d", "fwi_vecinos_mean", "fwi_vecinos_max"],
     "fwi_system":   ["ffmc", "dmc", "isi", "bui", "fwi", "fwi_roll14", "fwi_roll30"],
@@ -92,9 +41,7 @@ FEATURE_BLOCKS = {
 
 CAT_COLS = ["subregion_id", "land_cover_cat"]
 
-
 def _xgb(params):
-    """Build an XGBClassifier with the canonical best_params (no SSA)."""
     return xgb.XGBClassifier(
         **params,
         n_estimators=1000,
@@ -106,7 +53,6 @@ def _xgb(params):
         tree_method="hist",
     )
 
-
 def _prep(df, cols):
     X = df[cols].copy()
     for c in CAT_COLS:
@@ -115,7 +61,6 @@ def _prep(df, cols):
     y = df[t4.TARGET].values.astype(np.int32)
     return X, y
 
-
 def main():
     t_start = time.time()
     report = {}
@@ -123,7 +68,6 @@ def main():
     print("   AlertaFuego — Model V4 Rigorous Evaluation (Phase A)")
     print("=" * 70)
 
-    # ── Reproduce data + split (deterministic) ──────────────────────────────
     df = t4.load_data()
     train_mask = df["fecha_join"] < pd.Timestamp(t4.TEMPORAL_SPLIT_DATE)
     df = t4.add_features(df, train_mask)
@@ -140,7 +84,6 @@ def main():
 
     best_params = json.load(open(SCRIPT_DIR / "best_params_v4.json"))
 
-    # ── Load canonical model + reproducibility sanity check ─────────────────
     model = xgb.XGBClassifier(enable_categorical=True)
     model.load_model(str(SCRIPT_DIR / "xgboost_v4.json"))
     y_prob = model.predict_proba(X_test)[:, 1]
@@ -165,19 +108,14 @@ def main():
                        "expected_auc": expected_auc, "drift": drift,
                        "test_prevalence": prevalence, "test_size": int(len(y_test))}
 
-    # ════════════════════════════════════════════════════════════════════════
-    #  T1. fire_vecinos_3d serving-degradation
-    # ════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 70)
     print("   T1. fire_vecinos_3d serving-degradation analysis")
     print("=" * 70)
     horizon_rows = []
 
-    # (a) Current model, full features  → hindcast / H=1 quality
     horizon_rows.append({"scenario": "full_features_H1", "auc": auc_full, "ap": ap_full,
                          "note": "fire_vecinos_3d observed (forecast day 1 / hindcast)"})
 
-    # (b) Current model, fire_vecinos_3d masked to 0 → serving H>=4 (steady state)
     X_test_masked = X_test.copy()
     X_test_masked["fire_vecinos_3d"] = 0
     y_prob_masked = model.predict_proba(X_test_masked)[:, 1]
@@ -190,7 +128,6 @@ def main():
     print(f"   Masked 0 (H>=4, same model): AUC {auc_masked:.4f}  AP {ap_masked:.4f}"
           f"   Δ AUC {auc_masked-auc_full:+.4f}  Δ AP {ap_masked-ap_full:+.4f}")
 
-    # (c) Honest ceiling: retrain WITHOUT fire_vecinos_3d
     cols_no_fv = [c for c in feature_cols if c != "fire_vecinos_3d"]
     m_no_fv = _xgb(best_params)
     m_no_fv.fit(X_train[cols_no_fv], y_train,
@@ -207,26 +144,19 @@ def main():
     pd.DataFrame(horizon_rows).to_csv(OUT_DIR / "horizon_degradation_v4.csv", index=False)
     report["T1_horizon"] = horizon_rows
 
-    # ════════════════════════════════════════════════════════════════════════
-    #  D1. Baselines
-    # ════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 70)
     print("   D1. Baselines")
     print("=" * 70)
     baselines = []
 
-    # Prevalence (constant predictor)
     baselines.append({"baseline": "prevalence_constant", "auc": 0.5, "ap": prevalence,
                       "note": f"always predict base rate {prevalence:.4f}"})
 
-    # Persistence: self-cell fire in the previous 1-3 days (strict past)
     fire_rows = df[df[t4.TARGET] == 1][["cell_id", "fecha_join"]]
     self_lookup = set()
     for r in fire_rows.itertuples():
         for d in (1, 2, 3):
             self_lookup.add((r.cell_id, r.fecha_join + pd.Timedelta(days=d)))
-    # fecha_join values come through as numpy datetime64; cast to Timestamp to
-    # match the lookup keys (which were built from pandas Timestamps).
     persist_score = np.array([
         1.0 if (c, pd.Timestamp(f)) in self_lookup else 0.0
         for c, f in zip(df_test["cell_id"].values, df_test["fecha_join"].values)
@@ -236,7 +166,6 @@ def main():
     baselines.append({"baseline": "persistence_self_3d", "auc": auc_persist,
                       "ap": ap_persist, "note": "1 if same cell burned in last 3 days"})
 
-    # FWI-only XGBoost (retrained with best_params on just 'fwi')
     m_fwi = _xgb(best_params)
     m_fwi.fit(X_train[["fwi"]], y_train, eval_set=[(X_val[["fwi"]], y_val)], verbose=False)
     p_fwi = m_fwi.predict_proba(X_test[["fwi"]])[:, 1]
@@ -245,7 +174,6 @@ def main():
     baselines.append({"baseline": "fwi_only_xgb", "auc": auc_fwi, "ap": ap_fwi,
                       "note": "XGBoost trained on the single FWI feature"})
 
-    # Full model for reference
     baselines.append({"baseline": "FULL_MODEL_v4", "auc": auc_full, "ap": ap_full,
                       "note": "canonical v4 (all features)"})
 
@@ -254,9 +182,6 @@ def main():
     pd.DataFrame(baselines).to_csv(OUT_DIR / "baselines_v4.csv", index=False)
     report["D1_baselines"] = baselines
 
-    # ════════════════════════════════════════════════════════════════════════
-    #  D2. Block ablation (retrain dropping each block) + SHAP
-    # ════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 70)
     print("   D2. Block ablation (retrain without each block)")
     print("=" * 70)
@@ -277,7 +202,6 @@ def main():
     pd.DataFrame(ablation).to_csv(OUT_DIR / "block_ablation_v4.csv", index=False)
     report["D2_block_ablation"] = ablation
 
-    # SHAP (sampled) vs gain importance
     shap_summary = None
     try:
         import shap
@@ -302,14 +226,10 @@ def main():
         print(f"   SHAP skipped ({type(e).__name__}: {e})")
     report["D2_shap_top10"] = shap_summary
 
-    # ════════════════════════════════════════════════════════════════════════
-    #  D3. Calibration
-    # ════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 70)
     print("   D3. Probability calibration")
     print("=" * 70)
     frac_pos, mean_pred = calibration_curve(y_test, y_prob, n_bins=10, strategy="quantile")
-    # ECE with quantile bins (equal-count) — weight by bin size
     bins = pd.qcut(y_prob, q=10, duplicates="drop")
     cal_rows, ece = [], 0.0
     for b in bins.categories:
@@ -327,9 +247,6 @@ def main():
     pd.DataFrame(cal_rows).to_csv(OUT_DIR / "calibration_v4.csv", index=False)
     report["D3_calibration"] = {"ece": float(ece), "bins": cal_rows}
 
-    # ════════════════════════════════════════════════════════════════════════
-    #  D4. Spatial error per subregion
-    # ════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 70)
     print("   D4. Spatial error analysis (per subregion)")
     print("=" * 70)
@@ -357,12 +274,10 @@ def main():
               f"  rate={r.fire_rate*100:4.1f}%  AUC {auc_s}  AP {ap_s}")
     report["D4_spatial"] = spatial_rows
 
-    # ── Plots ───────────────────────────────────────────────────────────────
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle("AlertaFuego V4 — Rigorous Evaluation (Phase A)",
                  fontsize=15, fontweight="bold")
 
-    # Calibration
     axes[0, 0].plot([0, 1], [0, 1], "k--", alpha=0.4, label="perfect")
     axes[0, 0].plot(mean_pred, frac_pos, "o-", color="#E8612A",
                     label=f"v4 (ECE={ece:.3f})")
@@ -371,21 +286,18 @@ def main():
     axes[0, 0].set_ylabel("Observed fire fraction")
     axes[0, 0].legend(); axes[0, 0].grid(alpha=0.3)
 
-    # Baselines AP
     bn = [b["baseline"] for b in baselines]
     ba = [b["ap"] for b in baselines]
     axes[0, 1].barh(bn, ba, color="#00897B", alpha=0.85)
     axes[0, 1].set_title("Average Precision vs baselines")
     axes[0, 1].set_xlabel("AP"); axes[0, 1].grid(alpha=0.3, axis="x")
 
-    # Block ablation (delta AP)
     ab = pd.DataFrame(ablation)
     ab2 = ab[ab["block_removed"] != "none (full)"].sort_values("delta_ap")
     axes[1, 0].barh(ab2["block_removed"], ab2["delta_ap"], color="#1565C0", alpha=0.85)
     axes[1, 0].set_title("Δ AP when removing each block (more negative = more important)")
     axes[1, 0].set_xlabel("Δ AP vs full"); axes[1, 0].grid(alpha=0.3, axis="x")
 
-    # Spatial AUC
     ss = spatial_df.dropna(subset=["auc"])
     axes[1, 1].bar(ss["subregion_id"].astype(str), ss["auc"], color="#E8612A", alpha=0.85)
     axes[1, 1].axhline(auc_full, color="k", ls="--", alpha=0.5, label=f"global {auc_full:.3f}")
@@ -397,7 +309,6 @@ def main():
     fig.savefig(OUT_DIR / "eval_plots_v4.png", dpi=150)
     plt.close(fig)
 
-    # ── Final report ────────────────────────────────────────────────────────
     report["runtime_min"] = (time.time() - t_start) / 60
     with open(OUT_DIR / "evaluation_report_v4.json", "w") as f:
         json.dump(report, f, indent=2, default=str)
@@ -405,7 +316,6 @@ def main():
     print("\n" + "=" * 70)
     print(f"   Done in {report['runtime_min']:.1f} min. Outputs in {OUT_DIR}")
     print("=" * 70)
-
 
 if __name__ == "__main__":
     main()

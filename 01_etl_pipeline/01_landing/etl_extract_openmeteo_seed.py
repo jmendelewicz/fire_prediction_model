@@ -2,14 +2,18 @@
 # MAGIC %md
 # MAGIC # ETL Landing - Open Meteo Seed (Histórico 35 días)
 # MAGIC
-# MAGIC **Ejecutar UNA SOLA VEZ** antes de la primera inferencia,
-# MAGIC o para resetear el historial del pipeline diario.
+# MAGIC Descarga los últimos 35 días de historia meteorológica y los guarda como
+# MAGIC `seed.csv` en Landing. **Corre a diario como parte del Job2**: la ventana
+# MAGIC deslizante de bronze (MERGE + DELETE > 35 días) solo funciona si este
+# MAGIC extract aporta días nuevos cada día.
 # MAGIC
-# MAGIC Descarga 35 días históricos y los guarda en la tabla Delta `forecast_seed`.
+# MAGIC *Fix 2026-07-09:* la versión anterior se salteaba si `seed.csv` ya
+# MAGIC existía ("una sola vez"). Con eso, el MERGE diario nunca agregaba días
+# MAGIC nuevos y el DELETE de la ventana iba vaciando el seed hasta dejarlo en
+# MAGIC cero (~35 días después del setup), dejando al FWI sin spin-up histórico.
 
 # COMMAND ----------
 
-# Fix A-5 (2026-05-16): paths relativos.
 # MAGIC %run ../../00_setup/00_common_functions/openmeteo_client
 
 # COMMAND ----------
@@ -34,15 +38,15 @@ filepath = f"{PATH_OUT}/{filename}"
 
 # COMMAND ----------
 
-# MAGIC %md ## Idempotencia
+# MAGIC %md ## Extracción diaria
+# MAGIC
+# MAGIC Se sobreescribe `seed.csv` en cada corrida (idempotente: correr dos veces
+# MAGIC el mismo día produce el mismo archivo). El costo es una pasada por la
+# MAGIC API gratuita de Open-Meteo (~23 lotes de 100 nodos).
 
 # COMMAND ----------
 
-if os.path.exists(filepath):
-    print(f"Archivo ya existe: {filepath} — omitiendo extracción.")
-    dbutils.notebook.exit(f"SKIP: {filename} ya existe.")
-
-print(f"Iniciando extracción → {filename}")
+print(f"Iniciando extracción (últimos {PAST_DAYS} días) → {filename}")
 
 # COMMAND ----------
 
@@ -58,7 +62,7 @@ df_grid = (
 )
 print(f"Nodos: {len(df_grid)}")
 
-df_hourly = run_batched_extraction(         # ← openmeteo_client
+df_hourly = run_batched_extraction(
     df_grid       = df_grid,
     forecast_days = 0,
     past_days     = PAST_DAYS,
@@ -66,8 +70,8 @@ df_hourly = run_batched_extraction(         # ← openmeteo_client
     sleep_between = 10,
 )
 
-df_seed = aggregate_hourly_to_daily(df_hourly)   # ← weather_cleaners
-df_seed = clip_climate_df(df_seed)               # ← weather_cleaners
+df_seed = aggregate_hourly_to_daily(df_hourly)
+df_seed = clip_climate_df(df_seed)
 df_seed["date"] = pd.to_datetime(df_seed["date"])
 
 print(f"Seed: {len(df_seed):,} filas | {df_seed['cell_id'].nunique()} nodos | {df_seed['date'].nunique()} días")
