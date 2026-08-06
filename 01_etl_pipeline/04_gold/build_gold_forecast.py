@@ -57,38 +57,25 @@ TABLE_INPUT  = f"{CATALOG}.02_silver.silver_openmeteo"
 TABLE_NASA   = f"{CATALOG}.02_silver.silver_nasa_firms"
 TABLE_OUTPUT = f"{CATALOG}.03_gold.forecast_gold_temp"
 
-# Path al CSV de medias NDVI por celda que persiste el training (v4).
-# Si no existe, el script igualmente corre pero ndvi_anomaly = 0 (warning).
 PATH_NDVI_MEANS = "/Volumes/fire_risk_project/03_gold/training_dataset_v2/ndvi_means_per_cell_v4.csv"
 
-# Resolución de grilla para vecinos (queen contiguity ±0.25°)
 GRID_RES = 0.25
 
-# Las 42 features que ve el modelo v4 entrenado.
-# Orden DEBE coincidir con feature_cols_v4.pkl (XGBoost es position-sensitive).
 FINAL_COLS = [
     "cell_id", "date",
-    # Estáticas
     "subregion_id", "elevation", "slope", "aspect",
     "dist_road_km", "land_cover_cat", "pop_density_km2",
-    # Estacionalidad
     "mes_sin", "mes_cos", "dia_sin", "dia_cos", "calendario_agricola",
-    # Climáticas
     "temperature_2m", "relative_humidity", "wind_speed_10m",
     "precipitation", "solar_radiation",
     "soil_moisture_0_7cm", "soil_moisture_28_100cm",
     "ndvi", "vpd_kpa",
-    # FWI
     "ffmc", "dmc", "bui", "isi", "fwi",
-    # Ventanas temporales
     "dias_secos", "spi_90d",
     "fwi_roll14", "fwi_roll30",
     "temperature_2m_roll30", "wind_speed_10m_roll30",
-    # Espaciales (C-5 fix)
     "fwi_vecinos_mean", "fwi_vecinos_max", "fire_vecinos_3d",
-    # Interacciones (C-3 fix — same as add_features in train_model_v4.py)
     "fwi_x_vpd", "temp_x_dry", "wind_x_fwi",
-    # NDVI anomaly (C-1 fix con persistencia de medias del training)
     "ndvi_anomaly",
 ]
 
@@ -209,8 +196,6 @@ df_neighbors = (
 
 df = df.join(df_neighbors, on=["cell_id", "date_col"], how="left")
 
-# Para celdas de borde sin vecinos válidos, usar el FWI propio (consistente
-# con train_model_v4.add_spatial_features fillna)
 df = (
     df
     .withColumn("fwi_vecinos_mean", F.coalesce(F.col("fwi_vecinos_mean"), F.col("fwi")))
@@ -231,14 +216,12 @@ logger.info("Features espaciales FWI calculadas.")
 
 # COMMAND ----------
 
-# Universo de fuegos relevantes: últimos 38 días (35 seed + 3 lookback)
-# Suficiente para cubrir los lookbacks de cada fila de silver_openmeteo
 fecha_lookback = F.date_sub(F.current_date(), 40)
 
 df_fires = (
     spark.read.table(TABLE_NASA)
     .filter(F.col("fecha_join") >= fecha_lookback)
-    .filter(F.col("type") == 0)   # solo vegetación, igual que en build_gold
+    .filter(F.col("type") == 0)
     .select(
         F.col("cell_id").alias("_fire_cell"),
         F.col("fecha_join").alias("_fire_date"),
@@ -246,21 +229,17 @@ df_fires = (
     .distinct()
 )
 
-# Cross-join: para cada fila (a) buscar si ALGÚN vecino tuvo fuego
-# en los 3 días previos a a.date_col. Misma lógica que el training:
-# fire_vecinos_3d = 1 si existe (n, F) con n ∈ neighbors(a.cell_id)
-# y F ∈ {a.date_col - 1, a.date_col - 2, a.date_col - 3}.
 df_with_fire = (
     df.alias("a")
     .join(
         df_fires.alias("f"),
         on=[
-            F.col("a._lat").isNotNull(),   # filas con coords parseadas
+            F.col("a._lat").isNotNull(),
             spark_abs(F.col("a._lat") - F.split(F.col("f._fire_cell"), "_").getItem(0).cast("double")) <= GRID_RES + 0.001,
             spark_abs(F.col("a._lon") - F.split(F.col("f._fire_cell"), "_").getItem(1).cast("double")) <= GRID_RES + 0.001,
-            F.col("a.cell_id") != F.col("f._fire_cell"),   # estrictamente vecino, no la celda misma
+            F.col("a.cell_id") != F.col("f._fire_cell"),
             F.col("f._fire_date") >= F.date_sub(F.col("a.date_col"), 3),
-            F.col("f._fire_date") <  F.col("a.date_col"),    # estricto pasado
+            F.col("f._fire_date") <  F.col("a.date_col"),
         ],
         how="left"
     )
@@ -298,7 +277,6 @@ if os.path.exists(PATH_NDVI_MEANS):
     )
     df = df.join(df_ndvi_means, on="cell_id", how="left")
 
-    # Fallback para celdas no presentes en el CSV (improbable, defensivo)
     df = df.withColumn(
         "ndvi_anomaly",
         F.col("ndvi") - F.coalesce(F.col("ndvi_mean"), F.lit(0.0))
@@ -335,7 +313,6 @@ logger.info("Interacciones calculadas.")
 df_forecast = df.filter(F.col("is_forecast") == True)
 logger.info(f"Días de forecast (salida): {df_forecast.count():,} filas")
 
-# Renombrar date_col → date para coincidir con el schema esperado
 df_forecast = df_forecast.withColumn("date", F.col("date_col").cast(StringType()))
 
 missing = [c for c in FINAL_COLS if c not in df_forecast.columns]

@@ -36,17 +36,6 @@ logger = logging.getLogger("ETL_NASA")
 
 # COMMAND ----------
 
-# API Key — lee desde Databricks Secrets (NUNCA hardcodear).
-#
-# Setup (una sola vez):
-#   1. Generar token en https://firms.modaps.eosdis.nasa.gov/api/area/
-#   2. Crear scope:  databricks secrets create-scope --scope fire-risk
-#   3. Cargar key:   databricks secrets put --scope fire-risk --key nasa_firms_api_key
-#
-# Fix CN-1 (2026-05-16): la versión previa contenía la API key como
-# literal en código versionado. La key vieja fue revocada y reemplazada por
-# este lookup de secret. Si este script falla por "secret not found",
-# correr el setup de arriba.
 try:
     NASA_API_KEY = dbutils.secrets.get(scope="fire-risk", key="nasa_firms_api_key")
 except Exception as e:
@@ -56,21 +45,16 @@ except Exception as e:
         f"Error original: {e}"
     )
 
-# NASA FIRMS
 SOURCE = "VIIRS_SNPP_SP"
-DAYS_PER_REQ = 5  
+DAYS_PER_REQ = 5
 
-# Región pampeana
 AREA = "-68.0,-42.0,-56.0,-28.0"
 
-# Unity Catalog 
 PATH_NASA = "/Volumes/fire_risk_project/00_landing/nasa_files"
 
-# Período de extracción 
 DATE_START = date(2022, 1, 1)
 DATE_END   = date(2024, 12, 31)
 
-# Control de ejecución
 FORCE_REDOWNLOAD = False
 
 # COMMAND ----------
@@ -84,18 +68,6 @@ def etl_nasa(
     end_date: date,
     force: bool = False
 ) -> None:
-    """
-    Descarga focos VIIRS desde NASA FIRMS en bloques de 5 días.
-
-    Guarda un CSV por bloque en el volumen landing.
-    Los bloques ya existentes se saltean automáticamente (proceso idempotente).
-    Maneja rate limiting (HTTP 429) y timeouts automáticamente.
-
-    Args:
-        start_date: Fecha de inicio de la extracción
-        end_date:   Fecha de fin de la extracción
-        force:      Si True, re-descarga aunque el archivo ya exista
-    """
     total_days = (end_date - start_date).days
     total_req  = total_days // DAYS_PER_REQ + 1
 
@@ -150,7 +122,7 @@ def etl_nasa(
             elif response.status_code == 429:
                 logger.warning("Rate limit alcanzado. Esperando 60s...")
                 time.sleep(60)
-                continue   # reintentar misma fecha
+                continue
 
             else:
                 logger.warning(
@@ -194,7 +166,7 @@ csvs_existentes = [
     if f.startswith("nasa_") and f.endswith(".csv")
 ] if os.path.exists(PATH_NASA) else []
 
-if len(csvs_existentes) >= total_bloques * 0.95:   # 95%: tolerancia a días sin focos
+if len(csvs_existentes) >= total_bloques * 0.95:
     print(f"Archivos ya descargados: {len(csvs_existentes)} / {total_bloques} bloques esperados — saliendo.")
     dbutils.notebook.exit("SKIP: nasa ya descargado.")
 
@@ -205,7 +177,6 @@ print(f"NASA: {len(csvs_existentes)} / {total_bloques} bloques existentes — de
 # COMMAND ----------
 
 etl_nasa(start_date=DATE_START, end_date=DATE_END, force=FORCE_REDOWNLOAD)
-
 
 # COMMAND ----------
 

@@ -39,7 +39,6 @@ TABLE_BRONZE = "fire_risk_project.01_bronze.bronze_nasa_firms"
 TABLE_SILVER = "fire_risk_project.02_silver.silver_nasa_firms"
 TABLE_GRID   = "fire_risk_project.00_landing.aux_grid_pampa"
 
-# Bounds pampeanos — consistentes con aux_grid_pampa
 LAT_MIN, LAT_MAX = -42.0, -28.0
 LON_MIN, LON_MAX = -68.0, -56.0
 STEP             = 0.25
@@ -64,18 +63,13 @@ logger.info(f"Bronze NASA: {df_bronze.count():,} registros")
 df_silver = (
     df_bronze
 
-    # A. Cast de tipos
     .withColumn("latitude",  col("latitude").cast("double"))
     .withColumn("longitude", col("longitude").cast("double"))
 
-    # B. Filtro confidence n=nominal, h=high
-    # Elimina falsas detecciones por nubes, superficies reflectivas e industria
     .filter(col("confidence").isin(["n", "h"]))
 
-    # C. Normalización de hora a 4 dígitos (ej. 130 → "0130")
     .withColumn("time_str", expr("lpad(cast(acq_time as string), 4, '0')"))
 
-    # D. Timestamp UTC completo
     .withColumn("timestamp_incendio", to_timestamp(
         expr("concat(cast(acq_date as string), ' ', "
              "substr(time_str, 1, 2), ':', "
@@ -83,11 +77,8 @@ df_silver = (
         "yyyy-MM-dd HH:mm:ss"
     ))
 
-    # E. Deduplicación — mismo foco puede aparecer en múltiples archivos
     .dropDuplicates(["acq_date", "acq_time", "latitude", "longitude"])
 
-    # F. Asignación al nodo de grilla más cercano (0.25°)
-    # Formato fijo 4 decimales — consistente con cell_id de aux_grid_pampa
     .withColumn("grid_lat", round(round(col("latitude")  / STEP) * STEP, 4))
     .withColumn("grid_lon", round(round(col("longitude") / STEP) * STEP, 4))
     .withColumn("cell_id", concat(
@@ -95,20 +86,19 @@ df_silver = (
         format_number(col("grid_lon"), 4)
     ))
 
-    # G. Claves para join temporal en Gold
     .withColumn("fecha_join", col("acq_date"))
     .withColumn("hora_join",  hour(col("timestamp_incendio")))
 
-    # H. Filtro bounding box — descarta focos que redondean fuera de la grilla
     .filter(
         (col("grid_lat") >= LAT_MIN) & (col("grid_lat") <= LAT_MAX) &
         (col("grid_lon") >= LON_MIN) & (col("grid_lon") <= LON_MAX)
     )
 )
 
-# I. Inner join contra grilla válida
-# Descarta focos en zonas costeras/borde eliminadas por la máscara de tierra (~1.6%)
 df_silver = df_silver.join(df_grid, on="cell_id", how="inner")
+
+from pyspark.sql.functions import current_timestamp
+df_silver = df_silver.withColumn("_processed_at", current_timestamp())
 
 logger.info(f"Silver NASA: {df_silver.count():,} registros")
 

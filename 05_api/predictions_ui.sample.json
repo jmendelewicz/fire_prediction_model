@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-13T06:00:00Z",
+  "model_version": "v4",
+  "calibration": "platt",
+  "threshold": 0.0701,
+  "n_nodes": 3,
+  "_note": "SAMPLE fixture for API/frontend wiring. Real payload is produced by the Databricks inference job. risk_level is a CALIBRATED probability (0-100).",
+  "fechas": ["2026-06-13", "2026-06-14", "2026-06-15", "2026-06-16"],
+  "nodes": [
+    {
+      "cell_id": "-34.2500_-57.0000",
+      "predictions": {
+        "2026-06-13": {"risk_level": 4.2, "alert": 0, "temp": 12.3, "hum": 71, "wind": 9.4, "precip": 1.2, "fwi": 5.1, "ffmc": 74, "dmc": 11, "isi": 1.2, "bui": 16},
+        "2026-06-14": {"risk_level": 6.8, "alert": 0, "temp": 14.1, "hum": 64, "wind": 12.0, "precip": 0.0, "fwi": 7.3, "ffmc": 79, "dmc": 13, "isi": 1.8, "bui": 19},
+        "2026-06-15": {"risk_level": 9.1, "alert": 1, "temp": 16.8, "hum": 52, "wind": 15.5, "precip": 0.0, "fwi": 10.2, "ffmc": 83, "dmc": 15, "isi": 2.6, "bui": 22},
+        "2026-06-16": {"risk_level": 7.5, "alert": 1, "temp": 15.2, "hum": 58, "wind": 13.1, "precip": 0.3, "fwi": 8.4, "ffmc": 81, "dmc": 14, "isi": 2.1, "bui": 20}
+      }
+    },
+    {
+      "cell_id": "-30.7500_-56.7500",
+      "predictions": {
+        "2026-06-13": {"risk_level": 12.4, "alert": 1, "temp": 22.5, "hum": 38, "wind": 18.2, "precip": 0.0, "fwi": 18.6, "ffmc": 88, "dmc": 28, "isi": 4.8, "bui": 41},
+        "2026-06-14": {"risk_level": 18.9, "alert": 1, "temp": 25.1, "hum": 30, "wind": 22.4, "precip": 0.0, "fwi": 24.1, "ffmc": 91, "dmc": 32, "isi": 6.5, "bui": 47},
+        "2026-06-15": {"risk_level": 15.2, "alert": 1, "temp": 23.7, "hum": 34, "wind": 19.8, "precip": 0.0, "fwi": 21.0, "ffmc": 89, "dmc": 30, "isi": 5.6, "bui": 44},
+        "2026-06-16": {"risk_level": 10.0, "alert": 1, "temp": 21.0, "hum": 45, "wind": 16.0, "precip": 0.8, "fwi": 15.2, "ffmc": 85, "dmc": 26, "isi": 3.9, "bui": 38}
+      }
+    },
+    {
+      "cell_id": "-34.2500_-56.7500",
+      "predictions": {
+        "2026-06-13": {"risk_level": 2.1, "alert": 0, "temp": 11.8, "hum": 76, "wind": 7.2, "precip": 2.4, "fwi": 3.2, "ffmc": 68, "dmc": 9, "isi": 0.8, "bui": 13},
+        "2026-06-14": {"risk_level": 3.3, "alert": 0, "temp": 13.0, "hum": 70, "wind": 9.0, "precip": 0.5, "fwi": 4.6, "ffmc": 73, "dmc": 10, "isi": 1.1, "bui": 15},
+        "2026-06-15": {"risk_level": 5.0, "alert": 0, "temp": 14.5, "hum": 62, "wind": 11.3, "precip": 0.0, "fwi": 6.4, "ffmc": 77, "dmc": 12, "isi": 1.6, "bui": 17},
+        "2026-06-16": {"risk_level": 4.4, "alert": 0, "temp": 13.8, "hum": 66, "wind": 10.1, "precip": 0.2, "fwi": 5.5, "ffmc": 75, "dmc": 11, "isi": 1.4, "bui": 16}
+      }
+    }
+  ]
+}

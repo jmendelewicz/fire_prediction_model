@@ -1,13 +1,5 @@
 # Databricks notebook source
-# MAGIC %md
-# MAGIC # ETL Download Static Data
-# MAGIC
-# MAGIC Descarga los archivos estáticos necesarios para generar la grilla maestra.
-# MAGIC **Idempotente:** si los archivos ya existen, no vuelve a descargar.
-# MAGIC
-# MAGIC **Output:**
-# MAGIC - `/Volumes/fire_risk_project/00_landing/grid_setup/osm_road_distance.csv`
-# MAGIC - `/Volumes/fire_risk_project/00_landing/grid_setup/population_density.csv`
+# MAGIC %md # Download Static Grid Data
 
 # COMMAND ----------
 
@@ -28,11 +20,11 @@ import ee
 
 # COMMAND ----------
 
-# MAGIC %md ## Configuración
+# MAGIC %md ## Config
 
 # COMMAND ----------
 
-GEE_PROJECT = "gee_project_id"   ###
+GEE_PROJECT = "gee_project_id"
 
 PATH_GRID_SETUP = "/Volumes/fire_risk_project/00_landing/grid_setup"
 PATH_OSM        = f"{PATH_GRID_SETUP}/osm_road_distance.csv"
@@ -55,7 +47,7 @@ DELTA = 0.125
 
 # COMMAND ----------
 
-# MAGIC %md ## 0 · Verificación de idempotencia
+# MAGIC %md ## Idempotence check
 
 # COMMAND ----------
 
@@ -63,17 +55,17 @@ osm_exists = os.path.exists(PATH_OSM)
 pop_exists = os.path.exists(PATH_POP)
 
 if osm_exists and pop_exists:
-    print("Ambos archivos ya existen — nada que descargar.")
+    print("BOTH FILES ALREADY THERE NOTHING TO DOWNLOAD")
     print(f"  {PATH_OSM}")
     print(f"  {PATH_POP}")
-    dbutils.notebook.exit("SKIP: archivos estáticos ya existen.")
+    dbutils.notebook.exit("SKIP STATIC FILES ALREADY THERE")
 
-print(f"OSM:     {'OK' if osm_exists else 'FALTA'}")
-print(f"WorldPop: {'OK' if pop_exists else 'FALTA'}")
+print(f"ROAD FILE {'FOUND' if osm_exists else 'MISSING'}")
+print(f"POPULATION FILE {'FOUND' if pop_exists else 'MISSING'}")
 
 # COMMAND ----------
 
-# MAGIC %md ## 1 · Cargar grilla válida
+# MAGIC %md ## Load valid grid
 
 # COMMAND ----------
 
@@ -83,11 +75,11 @@ df_grid = (
     .select("cell_id", "latitude", "longitude")
     .toPandas()
 )
-print(f"Nodos válidos: {len(df_grid):,}")
+print(f"VALID CELLS {len(df_grid):,}")
 
 # COMMAND ----------
 
-# MAGIC %md ## 2 · Distancia a rutas (OSM Argentina)
+# MAGIC %md ## Road distance from OSM
 
 # COMMAND ----------
 
@@ -95,22 +87,22 @@ if not osm_exists:
     os.makedirs(OSM_DIR, exist_ok=True)
 
     if not os.path.exists(SHP_PATH):
-        print("Descargando OSM Argentina (~500MB)...")
+        print("DOWNLOAD OSM ARGENTINA BIG FILE")
         r = requests.get(OSM_URL, stream=True, timeout=600)
         with open(ZIP_PATH, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
         with zipfile.ZipFile(ZIP_PATH, "r") as z:
             z.extractall(OSM_DIR)
-        print("Descarga completa.")
+        print("DOWNLOAD DONE")
     else:
-        print("Shapefile OSM ya en /tmp/ — reutilizando.")
+        print("OSM SHAPEFILE ALREADY IN TMP REUSE IT")
 
     roads       = gpd.read_file(SHP_PATH)
     roads_f     = roads[roads["fclass"].isin(TIPOS_RUTA)].copy()
     roads_proj  = roads_f.to_crs(CRS_METRICO)
     roads_union = unary_union(roads_proj.geometry)
-    print(f"Rutas filtradas: {len(roads_f):,}")
+    print(f"ROADS KEPT {len(roads_f):,}")
 
     gdf = gpd.GeoDataFrame(
         df_grid[["cell_id", "latitude", "longitude"]],
@@ -119,33 +111,33 @@ if not osm_exists:
         crs="EPSG:4326"
     ).to_crs(CRS_METRICO)
 
-    print("Calculando distancias...")
+    print("DISTANCE COMPUTE START")
     dist_km = []
     n = len(gdf)
     for i, geom in enumerate(gdf.geometry):
         dist_km.append(geom.distance(roads_union) / 1000)
         if i % 300 == 0:
-            print(f"  [{i+1}/{n}]  muestra: {dist_km[-1]:.2f} km")
+            print(f"  CELL {i+1} OF {n} SAMPLE DISTANCE KM {dist_km[-1]:.2f}")
 
     df_osm = gdf[["cell_id"]].copy()
     df_osm["dist_road_km"] = dist_km
 
     os.makedirs(PATH_GRID_SETUP, exist_ok=True)
     df_osm.to_csv(PATH_OSM, index=False)
-    print(f"Guardado: {PATH_OSM}  ({len(df_osm):,} filas)")
+    print(f"FILE SAVED {PATH_OSM} ROWS {len(df_osm):,}")
 else:
-    print(f"OSM ya existe — saltando.")
+    print(f"ROAD FILE ALREADY THERE SKIP")
 
 # COMMAND ----------
 
-# MAGIC %md ## 3 · Densidad poblacional (WorldPop via GEE)
+# MAGIC %md ## Population density from WorldPop
 
 # COMMAND ----------
 
 if not pop_exists:
     ee.Authenticate()
     ee.Initialize(project=GEE_PROJECT)
-    print("GEE inicializado")
+    print("EARTH ENGINE READY")
 
     fc_poligonos = ee.FeatureCollection([
         ee.Feature(
@@ -197,7 +189,7 @@ if not pop_exists:
             props = f.get("properties", {})
             features.append({c: props.get(c) for c in COLS_POP})
         offset += len(batch_info)
-        print(f"Descargados: {offset:,} / {n_total:,}")
+        print(f"DOWNLOADED {offset:,} OF {n_total:,}")
         time.sleep(0.3)
         if len(batch_info) < batch:
             break
@@ -207,25 +199,25 @@ if not pop_exists:
     df_pop["pop_density_km2"] = pd.to_numeric(df_pop["pop_density_km2"], errors="coerce").fillna(0.0)
 
     n_nonzero = (df_pop["pop_density_km2"] > 0).sum()
-    print(f"Nodos con población > 0: {n_nonzero:,} de {len(df_pop):,}")
+    print(f"CELLS WITH PEOPLE {n_nonzero:,} OF {len(df_pop):,}")
 
     os.makedirs(PATH_GRID_SETUP, exist_ok=True)
     df_pop.to_csv(PATH_POP, index=False)
-    print(f"Guardado: {PATH_POP}  ({len(df_pop):,} filas)")
+    print(f"FILE SAVED {PATH_POP} ROWS {len(df_pop):,}")
 else:
-    print(f"WorldPop ya existe — saltando.")
+    print(f"POPULATION FILE ALREADY THERE SKIP")
 
 # COMMAND ----------
 
-# MAGIC %md ## 4 · Verificación
+# MAGIC %md ## Check
 
 # COMMAND ----------
 
 for path in [PATH_OSM, PATH_POP]:
     if os.path.exists(path):
         df = pd.read_csv(path)
-        print(f"OK: {path}  ({len(df):,} filas)")
+        print(f"FILE OK {path} ROWS {len(df):,}")
     else:
-        print(f"ERROR: {path} no encontrado")
+        print(f"FILE MISSING {path}")
 
-dbutils.notebook.exit("OK: archivos estáticos disponibles en grid_setup/")
+dbutils.notebook.exit("STATIC FILES READY IN GRID SETUP FOLDER")

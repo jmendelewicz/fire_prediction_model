@@ -15,7 +15,6 @@
 
 # COMMAND ----------
 
-# Fix A-5 (2026-05-16): paths relativos en lugar de hardcoded por usuario.
 # MAGIC %run ../../00_setup/00_common_functions/gee_helpers
 
 # COMMAND ----------
@@ -44,7 +43,7 @@ logger = logging.getLogger("ETL_ERA5")
 
 # COMMAND ----------
 
-GEE_PROJECT = "fire-risk-project-19-04"   ### ajustar
+GEE_PROJECT = "fire-risk-project-19-04"
 
 TABLE_GRID  = "fire_risk_project.00_landing.aux_grid_pampa"
 PATH_ERA5   = "/Volumes/fire_risk_project/00_landing/era5_files"
@@ -87,7 +86,6 @@ logger.info(f"Grilla: {len(df_grid):,} nodos")
 # COMMAND ----------
 
 def extraer_mes_era5(year: int, month: int) -> pd.DataFrame:
-    """Extrae ERA5-Land para un mes completo sobre todos los nodos."""
     todas_bandas = {**BANDAS_MEDIODIA, **BANDAS_SUMA, **BANDAS_MEDIA}
     last_day     = calendar.monthrange(year, month)[1]
     dias         = pd.date_range(f"{year}-{month:02d}-01", periods=last_day, freq="D")
@@ -155,8 +153,8 @@ for year, month in meses:
     logger.info(f"Procesando {year}-{month:02d}...")
     try:
         df_mes = extraer_mes_era5(year, month)
-        df_mes = calcular_variables_derivadas_era5(df_mes)   # ← weather_cleaners
-        guardar_en_volume(df_mes, PATH_ERA5, fname)           # ← gee_helpers
+        df_mes = calcular_variables_derivadas_era5(df_mes)
+        guardar_en_volume(df_mes, PATH_ERA5, fname)
         meses_ok += 1
     except Exception as e:
         logger.error(f"Error en {year}-{month:02d}: {str(e)[:200]}")

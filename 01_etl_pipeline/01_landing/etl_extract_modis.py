@@ -13,7 +13,6 @@
 
 # COMMAND ----------
 
-# Fix A-5 (2026-05-16): path relativo.
 # MAGIC %run ../../00_setup/00_common_functions/gee_helpers
 
 # COMMAND ----------
@@ -26,12 +25,9 @@ import os
 import time
 from datetime import datetime
 
-GEE_PROJECT = "fire-risk-project-19-04"   ###
+GEE_PROJECT = "fire-risk-project-19-04"
 
 TABLE_GRID  = "fire_risk_project.00_landing.aux_grid_pampa"
-# Fix CN-2 (2026-05-16): el path antes era /00_landing/ndvi/, pero
-# ingest_datasets.py y transform_modis.py leen de /00_landing/modis_ndvi/.
-# Alineado a la convención usada por los downstream.
 PATH_NDVI   = "/Volumes/fire_risk_project/00_landing/modis_ndvi"
 
 START_DATE  = "2022-01-01"
@@ -54,14 +50,13 @@ if ndvi_exists:
 
 print("NDVI: FALTA — iniciando extracción")
 
-
 # COMMAND ----------
 
 # MAGIC %md ## Inicialización
 
 # COMMAND ----------
 
-inicializar_gee(GEE_PROJECT)   # ← gee_helpers
+inicializar_gee(GEE_PROJECT)
 
 df_grid = (
     spark.table(TABLE_GRID)
@@ -71,7 +66,7 @@ df_grid = (
 )
 
 REGION    = ee.Geometry.Rectangle([LON_MIN, LAT_MIN, LON_MAX, LAT_MAX])
-fc_puntos = build_fc_puntos(df_grid)   # ← gee_helpers
+fc_puntos = build_fc_puntos(df_grid)
 
 print(f"Nodos: {len(df_grid):,}")
 
@@ -119,7 +114,7 @@ for i in range(n):
     time.sleep(0.5)
 
 df_ndvi = pd.concat(dfs_ndvi, ignore_index=True)
-guardar_en_volume(df_ndvi, PATH_NDVI, "ndvi_2022_2024.csv")   # ← gee_helpers
+guardar_en_volume(df_ndvi, PATH_NDVI, "ndvi_2022_2024.csv")
 
 print(f"NDVI: {len(df_ndvi):,} filas | {df_ndvi['cell_id'].nunique():,} nodos | {n} compuestos")
 dbutils.notebook.exit(f"OK: ndvi_2022_2024.csv — {len(df_ndvi):,} filas")

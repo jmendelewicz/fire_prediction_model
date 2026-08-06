@@ -8,7 +8,6 @@
 
 # COMMAND ----------
 
-# Fix A-5 (2026-05-16): paths relativos.
 # MAGIC %run ../../00_setup/00_common_functions/openmeteo_client
 
 # COMMAND ----------
@@ -56,8 +55,7 @@ df_grid = (
 )
 print(f"Nodos: {len(df_grid)}")
 
-# run_batched_extraction devuelve DataFrame horario
-df_hourly = run_batched_extraction(             # ← openmeteo_client
+df_hourly = run_batched_extraction(
     df_grid       = df_grid,
     forecast_days = FORECAST_DAYS,
     past_days     = 0,
@@ -65,9 +63,8 @@ df_hourly = run_batched_extraction(             # ← openmeteo_client
     sleep_between = 10,
 )
 
-# aggregate_hourly_to_daily aplica snapshot 15UTC + suma + media
-df_daily = aggregate_hourly_to_daily(df_hourly)   # ← weather_cleaners
-df_daily = clip_climate_df(df_daily)               # ← weather_cleaners
+df_daily = aggregate_hourly_to_daily(df_hourly)
+df_daily = clip_climate_df(df_daily)
 df_daily["date"] = pd.to_datetime(df_daily["date"])
 
 print(f"Filas: {len(df_daily):,} | Nodos: {df_daily['cell_id'].nunique()} | Fechas: {df_daily['date'].nunique()}")

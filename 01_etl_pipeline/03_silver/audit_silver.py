@@ -8,8 +8,8 @@
 # MAGIC **Tablas auditadas:**
 # MAGIC - `silver_nasa_firms`  — focos VIIRS
 # MAGIC - `silver_era5`        — variables climáticas + features estáticas (dist_road, pop_density, topografía)
-# MAGIC - `ndvi_silver`        — índice de vegetación diario
-# MAGIC - `land_cover_silver`  — cobertura del suelo anual
+# MAGIC - `silver_ndvi`        — índice de vegetación diario
+# MAGIC - `silver_land_cover`  — cobertura del suelo anual
 # MAGIC - `silver_openmeteo`   — seed 35d + forecast 4d con FWI calculado (opcional, sólo si pipeline diario)
 # MAGIC
 # MAGIC **Fix A-7 (2026-05-16):** la versión previa auditaba
@@ -28,13 +28,12 @@ TABLE_GRID = f"{CATALOG}.`00_landing`.aux_grid_pampa"
 
 TABLE_NASA = f"{CATALOG}.`02_silver`.silver_nasa_firms"
 TABLE_ERA5 = f"{CATALOG}.`02_silver`.silver_era5"
-TABLE_NDVI = f"{CATALOG}.`02_silver`.ndvi_silver"
-TABLE_LC   = f"{CATALOG}.`02_silver`.land_cover_silver"
-TABLE_OM   = f"{CATALOG}.`02_silver`.silver_openmeteo"   # opcional
+TABLE_NDVI = f"{CATALOG}.`02_silver`.silver_ndvi"
+TABLE_LC   = f"{CATALOG}.`02_silver`.silver_land_cover"
+TABLE_OM   = f"{CATALOG}.`02_silver`.silver_openmeteo"
 
-# Constantes esperadas
 N_NODOS    = 2266
-N_DIAS     = 365 + 365 + 366   # 2022 + 2023 + 2024 (bisiesto)
+N_DIAS     = 365 + 365 + 366
 FECHA_MIN  = "2022-01-01"
 FECHA_MAX  = "2024-12-31"
 
@@ -83,14 +82,11 @@ print(f"Nodos únicos: {df.select('cell_id').distinct().count():,} / {N_NODOS}")
 fechas = df.agg(F.min("fecha_join").alias("desde"), F.max("fecha_join").alias("hasta")).collect()[0]
 print(f"Fechas: {fechas['desde']} → {fechas['hasta']}")
 
-# Features climáticas
 feature_cols_clima = [
     "temperature_2m", "relative_humidity", "precipitation",
     "wind_speed_10m", "vpd_kpa", "solar_radiation",
     "soil_moisture_0_7cm", "soil_moisture_28_100cm"
 ]
-# Features estáticas — propagadas desde aux_grid_pampa via silver_era5
-# (antes vivían en static_features_silver — eliminada)
 feature_cols_estaticas = [
     "elevation", "slope", "aspect",
     "dist_road_km", "pop_density_km2", "subregion_id"
@@ -110,7 +106,6 @@ for c in feature_cols_estaticas:
     pct = nulls_est[c] / total * 100
     print(f"  {c:<30} {nulls_est[c]:6,}  ({pct:.2f}%)  {'OK' if pct == 0 else 'Revisar'}")
 
-# Rangos físicos
 print("\nRangos físicos (verificación contra clips de Silver):")
 ranges = df.agg(
     F.min("relative_humidity").alias("rh_min"), F.max("relative_humidity").alias("rh_max"),

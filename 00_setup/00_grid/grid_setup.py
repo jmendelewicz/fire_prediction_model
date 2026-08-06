@@ -1,21 +1,5 @@
 # Databricks notebook source
-# MAGIC %md
-# MAGIC # Grid Setup — Grilla Maestra Región Pampeana (Paso 1 de 3)
-# MAGIC
-# MAGIC Genera la versión base de `aux_grid_pampa` con:
-# MAGIC - Coordenadas (lat, lon, cell_id, grid_row, grid_col)
-# MAGIC - Máscara de tierra (is_valid)
-# MAGIC - Topografía (elevation, slope, aspect) via GEE SRTM
-# MAGIC
-# MAGIC Las columnas de datos estáticos (dist_road_km, pop_density_km2) y subregiones
-# MAGIC se inicializan como NULL/0 y se completan en los pasos 2 y 3.
-# MAGIC
-# MAGIC **Flujo de setup (3 scripts en orden):**
-# MAGIC 1. **Este script** — crea la grilla base + topografía → guarda `aux_grid_pampa`
-# MAGIC 2. `grid_download_static_data` — lee la grilla, descarga OSM/WorldPop/LandCover
-# MAGIC 3. `grid_subregion_classification` — clasifica subregiones + merge estáticos → UPDATE
-# MAGIC
-# MAGIC **Ejecutar UNA SOLA VEZ** — verifica si la tabla ya existe.
+# MAGIC %md # Grid Setup
 
 # COMMAND ----------
 
@@ -33,7 +17,7 @@ warnings.filterwarnings("ignore")
 
 # COMMAND ----------
 
-# MAGIC %md ## Configuración
+# MAGIC %md ## Config
 
 # COMMAND ----------
 
@@ -44,23 +28,20 @@ LON_MAX = -56.0
 STEP    = 0.25
 
 OUTPUT_TABLE = "fire_risk_project.00_landing.aux_grid_pampa"
-GEE_PROJECT  = "fire-risk-project-19-04"   ###
+GEE_PROJECT  = "fire-risk-project-19-04"
 
 TMP_DIR = "/tmp/fire_grid"
 os.makedirs(TMP_DIR, exist_ok=True)
 
 # COMMAND ----------
 
-# MAGIC %md ## 0 · Verificación de idempotencia
+# MAGIC %md ## Idempotence check
 
 # COMMAND ----------
 
 try:
     existing = spark.table(OUTPUT_TABLE)
 
-    # 1. Verificar que la tabla tenga todas las columnas esperadas
-    # Nota: land_cover_cat NO es una columna de la grilla — fluye por el pipeline
-    # Bronze→Silver→Gold junto a las features climáticas.
     COLS_REQUERIDAS = {
         "cell_id", "latitude", "longitude", "grid_row", "grid_col",
         "subregion_id", "subregion_name",
@@ -72,38 +53,37 @@ try:
     cols_faltantes  = COLS_REQUERIDAS - cols_existentes
 
     if cols_faltantes:
-        print(f"Tabla existe pero le faltan columnas: {cols_faltantes} — regenerando.")
+        print(f"TABLE FOUND BUT COLUMNS MISSING {cols_faltantes} REBUILD")
     else:
-        # 2. Verificar nodos válidos y topografía
         n_valid   = existing.filter("is_valid = true").count()
         n_con_topo = existing.filter("is_valid = true AND elevation IS NOT NULL").count()
         pct_topo  = n_con_topo / n_valid * 100 if n_valid > 0 else 0
 
         if n_valid == 0:
-            print("Tabla existe pero sin nodos válidos — regenerando.")
+            print("TABLE FOUND BUT NO VALID CELLS REBUILD")
         elif pct_topo < 99:
-            print(f"Tabla existe pero topografía incompleta "
-                  f"({n_con_topo:,}/{n_valid:,} = {pct_topo:.1f}%) — regenerando.")
+            print(f"TABLE FOUND BUT TOPOGRAPHY INCOMPLETE "
+                  f"{n_con_topo:,} OF {n_valid:,} SHARE {pct_topo:.1f} REBUILD")
         else:
-            print(f"Tabla OK: {n_valid:,} nodos válidos, {pct_topo:.1f}% con topografía — saliendo.")
-            print("Siguiente paso: grid_download_static_data")
-            dbutils.notebook.exit("SKIP: aux_grid_pampa ya existe con schema y datos correctos.")
+            print(f"TABLE OK VALID CELLS {n_valid:,} TOPOGRAPHY SHARE {pct_topo:.1f} EXIT")
+            print("NEXT STEP GRID DOWNLOAD STATIC DATA")
+            dbutils.notebook.exit("SKIP GRID TABLE ALREADY GOOD")
 except Exception:
-    print("Tabla no existe — generando desde cero.")
+    print("TABLE NOT FOUND BUILD FROM SCRATCH")
 
 # COMMAND ----------
 
-# MAGIC %md ## 1 · Autenticación GEE
+# MAGIC %md ## Earth Engine auth
 
 # COMMAND ----------
 
 ee.Authenticate()
 ee.Initialize(project=GEE_PROJECT)
-print("GEE inicializado")
+print("EARTH ENGINE READY")
 
 # COMMAND ----------
 
-# MAGIC %md ## 2 · Grilla bruta
+# MAGIC %md ## Raw grid
 
 # COMMAND ----------
 
@@ -123,11 +103,11 @@ df_raw["cell_id"] = (
     df_raw["latitude"].map(lambda x: f"{x:.4f}") + "_" +
     df_raw["longitude"].map(lambda x: f"{x:.4f}")
 )
-print(f"Total nodos brutos: {len(df_raw):,}")
+print(f"RAW GRID CELLS {len(df_raw):,}")
 
 # COMMAND ----------
 
-# MAGIC %md ## 3 · Máscara de tierra
+# MAGIC %md ## Land mask
 
 # COMMAND ----------
 
@@ -136,7 +116,7 @@ NE_ZIP = f"{TMP_DIR}/ne_10m_countries.zip"
 NE_SHP = f"{TMP_DIR}/ne_10m_admin_0_countries.shp"
 
 if not os.path.exists(NE_SHP):
-    print("Descargando Natural Earth 10m...")
+    print("DOWNLOAD NATURAL EARTH SHAPES")
     urllib.request.urlretrieve(NE_URL, NE_ZIP)
     with zipfile.ZipFile(NE_ZIP) as z:
         z.extractall(TMP_DIR)
@@ -152,11 +132,11 @@ gdf = gpd.GeoDataFrame(
 gdf["is_valid"] = gdf.geometry.within(ar_uy)
 n_valid         = gdf["is_valid"].sum()
 df_valid        = gdf[gdf["is_valid"]].copy().reset_index(drop=True)
-print(f"Nodos válidos: {n_valid:,} / {len(gdf):,}  ({100 * n_valid / len(gdf):.1f}%)")
+print(f"VALID CELLS {n_valid:,} OF {len(gdf):,} SHARE {100 * n_valid / len(gdf):.1f}")
 
 # COMMAND ----------
 
-# MAGIC %md ## 4 · Features topográficos via GEE (SRTM)
+# MAGIC %md ## Topography from SRTM
 
 # COMMAND ----------
 
@@ -190,26 +170,22 @@ def extraer_topografia_gee(df_nodos: pd.DataFrame, batch_size: int = 150) -> pd.
                     "slope":     round(float(p.get("slope", 0)), 2),
                     "aspect":    round(float(p.get("aspect", 0)), 1),
                 })
-            print(f"  [{i // batch_size + 1}/{n_batches}] {min(i + batch_size, total)}/{total} nodos")
+            print(f"  BATCH {i // batch_size + 1} OF {n_batches} CELLS {min(i + batch_size, total)} OF {total}")
         except Exception as e:
-            print(f"  [{i // batch_size + 1}/{n_batches}] Error: {e}")
+            print(f"  BATCH {i // batch_size + 1} OF {n_batches} FAILED REASON {e}")
             for row in batch.itertuples():
                 resultados.append({"cell_id": row.cell_id,
                                    "elevation": None, "slope": None, "aspect": None})
         time.sleep(0.5)
     return pd.DataFrame(resultados)
 
-print(f"Extrayendo topografía para {len(df_valid):,} nodos...")
+print(f"TOPOGRAPHY FETCH START CELLS {len(df_valid):,}")
 df_topo = extraer_topografia_gee(df_valid[["cell_id", "latitude", "longitude"]])
-print(f"Topografía: {len(df_topo):,} registros | nulos: {df_topo.isnull().sum().sum()}")
+print(f"TOPOGRAPHY ROWS {len(df_topo):,} NULLS {df_topo.isnull().sum().sum()}")
 
 # COMMAND ----------
 
-# MAGIC %md ## 5 · Ensamble y guardado
-# MAGIC
-# MAGIC Se guarda la grilla base con topografía. Las columnas de datos estáticos
-# MAGIC (dist_road_km, pop_density_km2, subregion_id, subregion_name) se inicializan
-# MAGIC vacías — se completan en los pasos 2 y 3 del setup.
+# MAGIC %md ## Assemble and save
 
 # COMMAND ----------
 
@@ -217,17 +193,14 @@ df_grid = df_valid[["cell_id", "latitude", "longitude", "is_valid"]].merge(
     df_topo, on="cell_id", how="left"
 )
 
-# Columnas de grid
 df_grid["grid_row"] = ((df_grid["latitude"]  - LAT_MIN) / STEP).round().astype(int)
 df_grid["grid_col"] = ((df_grid["longitude"] - LON_MIN) / STEP).round().astype(int)
 
-# Columnas que se completan en pasos posteriores (inicializadas como NULL/0)
 df_grid["subregion_id"]   = 0
 df_grid["subregion_name"] = "Pendiente"
 df_grid["dist_road_km"]   = None
 df_grid["pop_density_km2"] = None
 
-# Orden final de columnas (coincide con DDL de aux_grid_pampa)
 COLS_FINAL = [
     "cell_id", "latitude", "longitude",
     "grid_row", "grid_col",
@@ -238,7 +211,6 @@ COLS_FINAL = [
 ]
 df_grid = df_grid[COLS_FINAL].copy()
 
-# Asegurar tipos correctos para Delta
 df_grid["dist_road_km"]    = df_grid["dist_road_km"].astype("float64")
 df_grid["pop_density_km2"] = df_grid["pop_density_km2"].astype("float64")
 
@@ -250,11 +222,11 @@ sdf = spark.createDataFrame(df_grid)
     .option("overwriteSchema", "true")
     .saveAsTable(OUTPUT_TABLE)
 )
-print(f"Tabla guardada: {OUTPUT_TABLE}  ({sdf.count():,} registros)")
+print(f"TABLE SAVED {OUTPUT_TABLE} ROWS {sdf.count():,}")
 
 # COMMAND ----------
 
-# MAGIC %md ## 6 · Verificación
+# MAGIC %md ## Check
 
 # COMMAND ----------
 
@@ -264,12 +236,12 @@ n_total = df_check.count()
 n_valid = df_check.filter("is_valid = true").count()
 n_topo  = df_check.filter("elevation IS NOT NULL").count()
 
-print(f"Total nodos:    {n_total:,}")
-print(f"Nodos válidos:  {n_valid:,}")
-print(f"Con topografía: {n_topo:,}")
-print(f"dist_road_km:   NULL (se completa en paso 3)")
-print(f"pop_density:    NULL (se completa en paso 3)")
-print(f"subregion:      Pendiente (se completa en paso 3)")
+print(f"TOTAL CELLS {n_total:,}")
+print(f"VALID CELLS {n_valid:,}")
+print(f"CELLS WITH TOPOGRAPHY {n_topo:,}")
+print(f"ROAD DISTANCE STILL EMPTY")
+print(f"POPULATION DENSITY STILL EMPTY")
+print(f"SUBREGION STILL EMPTY")
 
-print(f"\nSiguiente paso: correr grid_download_static_data")
-dbutils.notebook.exit(f"OK: {OUTPUT_TABLE} — {n_valid:,} nodos válidos con topografía")
+print(f"\nNEXT STEP GRID DOWNLOAD STATIC DATA")
+dbutils.notebook.exit(f"GRID READY {OUTPUT_TABLE} VALID CELLS {n_valid:,}")
