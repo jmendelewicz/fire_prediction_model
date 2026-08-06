@@ -141,9 +141,3 @@ La capa gold combina las OBT de ML con un **esquema estrella** para BI (`dim_cel
 - **Reproducibilidad**: MD5 del dataset + random_state persistidos en `metricas_v4.csv`.
 
 Las features incluyen el FWI canadiense completo (FFMC, DMC, DC, ISI, BUI, FWI), variables meteorológicas (temperatura, humedad relativa, VPD, viento, precipitación, radiación solar), humedad de suelo en dos profundidades, NDVI y anomalía de NDVI por celda, estáticas (elevación, pendiente, aspecto, distancia a caminos, densidad de población, cobertura), rolling means (14 y 30 días), estacionalidad (sin/cos), calendario agrícola, interacciones (`fwi × vpd`, `temp × dry`, `wind × fwi`), y autocorrelación espacial (`fwi_vecinos_mean`, `fwi_vecinos_max`, `fire_vecinos_3d`).
-
----
-
-## Autoría
-
-Julián Mendelewicz — 2026.
